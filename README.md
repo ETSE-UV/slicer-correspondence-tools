@@ -248,16 +248,39 @@ Resources/ETSE_UV__Dependencies.py
 
 Also check that the main module files are still located in the repository root.
 
-### Import error for fuzzy registration
+## Local Fuzzy Registration Library
 
-Check that these files exist:
+The fuzzy registration code is included locally in:
 
 ```text
-fuzzy_lib/fuzzyclusterreg.py
-fuzzy_lib/fuzzyclusterreg_gpu.py
-fuzzy_lib/__init__.py
+fuzzy_lib/
+├── fuzzyclusterreg.py
+├── fuzzyclusterreg_gpu.py
+└── __init__.py
 ```
 
+This module wraps the ClusterReg implementation of:
+
+Mingyang Zhao, Jingen Jiang, Lei Ma, Shiqing Xin, Gaofeng Meng, Dong-Ming Yan.
+"Correspondence-Free Nonrigid Point Set Registration Using Unsupervised
+Clustering Analysis." Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR), 2024.
+
+Original project: zikai1/ClusterReg  (https://github.com/zikai1/ClusterReg)
+
+ The bundled fuzzy_lib registration backend contains code from ClusterReg.
+ ClusterReg is distributed under the AGPL-3.0 license. Keep the original
+ license and attribution notices when redistributing this module.
+
+ BibTeX:
+ ```bibtex
+@inproceedings{zhao2024clustereg,
+title={Correspondence-Free Nonrigid Point Set Registration Using Unsupervised Clustering Analysis},
+author={Mingyang Zhao and Jingen Jiang and Lei Ma and Shiqing Xin and Gaofeng Meng and Dong-Ming Yan},
+booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+year={2024}
+}
+```
 ### External package missing
 
 Some modules request external packages through `ensure_packages`.
@@ -316,19 +339,18 @@ Thumbs.db
 
 ## Citation
 
-If you use these tools in academic work, please cite the associated paper:
+The associated manuscript has been submitted to the **XXXV Spanish Conference on Computer Graphics (CEIG 2026)** and is not yet published.
+
+Until the final publication details are available, please cite it as:
 
 ```bibtex
-@inproceedings{etseuv2026eargeometry,
-  title     = {Geometry Processing Tools for Parametric Representation of Ear Anatomy},
-  author    = {Author names},
-  booktitle = {CEIG 2026},
-  year      = {2026}
+@misc{DeRus2026_CEIG_GeomTools,
+  author = {De Rus Arance, Juan Antonio and Castorena, Carlos and Montagud, Mario and Ferri, Francesc J. and Cobos, Maximo},
+  title  = {Geometry Processing Tools for Parametric Representation of Ear Anatomy},
+  note   = {Manuscript submitted to the XXXV Spanish Conference on Computer Graphics (CEIG 2026), February 2026. Not yet published.},
+  year   = {2026}
 }
 ```
-
-Update this citation once the final publication details are available.
-
 ## License
 
 Add the project license here.
