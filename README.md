@@ -30,39 +30,28 @@ The repository root contains the main 3D Slicer module files:
 
 ```text
 .
-├── ETSE_UV__AutoRegistration.py
-├── ETSE_UV__FiducialIndexer.py
-├── ETSE_UV__FuzzyRegistration.py
-├── ETSE_UV__LoopRegionExtractor.py
-├── ETSE_UV__MeasurementTransfer.py
-├── ETSE_UV__MeshOrderer.py
-├── ETSE_UV__MeshPathTools.py
-├── ETSE_UV__RegistrationMetrics.py
-├── ETSE_UV__SofaHrtfPlotter.py
-├── ETSE_UV__SumnerAmbergRegistration.py
-├── ETSE_UV__TrimeshRegistration.py
-├── Scripts_Slicer.zip
-├── fuzzy_lib/
-│   ├── fuzzyclusterreg.py
-│   ├── fuzzyclusterreg_gpu.py
-│   └── __init__.py
-└── Resources/
-    ├── ETSE_UV__Dependencies.py
-    ├── ETSE_UV___RegistrationMetrics - copiaWithoutChunks.py
-    └── Icons/
-        ├── default.png
-        ├── ETSE_UV__AutoRegistration.png
-        ├── ETSE_UV__FiducialIndexer.png
-        ├── ETSE_UV__FuzzyRegistration.png
-        ├── ETSE_UV__LoopRegionExtractor.png
-        ├── ETSE_UV__MeasurementTransfer.png
-        ├── ETSE_UV__MeshOrderer.png
-        ├── ETSE_UV__MeshPathTools.png
-        ├── ETSE_UV__RegistrationMetrics.png
-        ├── ETSE_UV__SofaHrtfPlotter.png
-        ├── ETSE_UV__SumnerAmbergRegistration.png
-        ├── ETSE_UV__TrimeshRegistration.png
-        └── Icon.png
+│   .gitignore
+│   ETSE_UV__AutoRegistration.py
+│   ETSE_UV__FiducialIndexer.py
+│   ETSE_UV__FuzzyRegistration.py
+│   ETSE_UV__LoopRegionExtractor.py
+│   ETSE_UV__MeasurementTransfer.py
+│   ETSE_UV__MeshOrderer.py
+│   ETSE_UV__MeshPathTools.py
+│   ETSE_UV__RegistrationMetrics.py
+│   ETSE_UV__SofaHrtfPlotter.py
+│   ETSE_UV__SumnerAmbergRegistration.py
+│   ETSE_UV__TrimeshRegistration.py
+│   README.md
+│
+├───fuzzy_lib
+│   │   fuzzyclusterreg.py
+│   └   fuzzyclusterreg_gpu.py
+│
+└───Resources
+    │   ETSE_UV__Dependencies.py
+    │
+    └───Icons/
 ```
 
 ## Important Path Requirement
