@@ -37,23 +37,34 @@ class ETSE_UV__LoopRegionExtractor(ScriptedLoadableModule):
         parent.title = "ETSE-UV Loop Region Extractor"
         parent.categories = ["ETSE_UV"]
         parent.contributors = ["ETSE-UV"]
-        parent.helpText = (
-            "Loop-based surface cutter designed for ear (pinna) meshes, but usable on any single connected mesh.\n\n"
-            "Typical ear workflow:\n"
-            "  1. Draw a closed fiducial loop around the ear canal and another around the otobasion region\n"
-            "     on the same surface model.\n"
-            "  2. Specify which fiducial indices (1-based) belong to each loop.\n"
-            "  3. Provide a seed landmark on the tragus (used to decide which side is the pinna).\n"
-            "  4. The module computes shortest paths along the mesh between fiducials to build cutting loops,\n"
-            "     splits the surface into connected components, and outputs:\n"
-            "        • a Pinna model (component containing the tragus seed)\n"
-            "        • a Base model (everything else).\n\n"
-            "Beyond ears, the same approach can be used to separate any surface into two parts using two\n"
-            "loop cuts drawn on the mesh. It can also save the extracted region topology and re-apply it to\n"
-            "other registered meshes (single model, or batch over a folder)."
-        )
+        parent.helpText = """
+                            <p>Loop-based surface cutter designed for ear/pinna meshes, but usable on any
+                            single connected surface mesh.</p>
+
+                            <p><b>Typical ear workflow:</b></p>
+                            <ol>
+                              <li>Draw a closed fiducial loop around the ear canal.</li>
+                              <li>Draw another closed fiducial loop around the otobasion region.</li>
+                              <li>Specify which 1-based fiducial indices belong to each loop.</li>
+                              <li>Select the tragus seed landmark used to identify the pinna side.</li>
+                              <li>Run the cut.</li>
+                            </ol>
+
+                            <p><b>Outputs:</b></p>
+                            <ul>
+                              <li>Pinna model: the connected component containing the tragus seed.</li>
+                              <li>Base model: the remaining surface.</li>
+                            </ul>
+
+                            <p>The module can also save extracted pinna topology and re-apply it to registered
+                            meshes, either one-by-one or in batch.</p>
+                            """
         parent.acknowledgementText = (
-            "Algorithm and implementation by J.A. De Rus and ETSE-UV. Uses SciPy and VTK graph/selection tools."
+            "Developed by Juan Antonio De Rus Arance at the Escola Tècnica Superior "
+            "d'Enginyeria (ETSE-UV), Universitat de València, in the context of the "
+            "Signal Processing & Acoustic Technology (SPAT) research group. "
+            "Thanks to the 3D Slicer, SlicerMorph, VTK, NumPy, SciPy, Trimesh, and related "
+            "open-source communities."
         )
 
 

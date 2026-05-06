@@ -63,27 +63,38 @@ class ETSE_UV__FuzzyRegistration(ScriptedLoadableModule):
         parent.title = "ETSE-UV Fuzzy Registration"
         parent.categories = ["ETSE_UV"]
         parent.dependencies = []
-        parent.contributors = ["UV"]
-        parent.helpText = (
-            "Register SOURCE mesh to TARGET using the ClusterReg correspondence-free "
-            "non-rigid point set registration method.\n\n"
-            "This module wraps/bundles code from the official ClusterReg implementation of:\n"
-            "M. Zhao, J. Jiang, L. Ma, S. Xin, G. Meng, and D.-M. Yan, "
-            "\"Correspondence-Free Nonrigid Point Set Registration Using Unsupervised "
-            "Clustering Analysis,\" Proceedings of the IEEE/CVF Conference on Computer "
-            "Vision and Pattern Recognition (CVPR), 2024.\n\n"
-            "The CPU and optional GPU registration backends are imported from the bundled "
-            "`fuzzy_lib` package, which contains code from ClusterReg.\n\n"
-            "Pipeline: voxel downsample → normalize → register → interpolate displacement "
-            "→ denormalize into the TARGET frame."
-        )
+        parent.contributors = ["ETSE UV"]
+        parent.helpText = """
+        <p>Register a SOURCE mesh to a TARGET mesh using the ClusterReg correspondence-free
+        non-rigid point-set registration method.</p>
+
+        <p><b>Reference:</b> Mingyang Zhao, Jingen Jiang, Lei Ma, Shiqing Xin,
+        Gaofeng Meng, and Dong-Ming Yan. <i>Correspondence-Free Nonrigid Point Set
+        Registration Using Unsupervised Clustering Analysis</i>. CVPR 2024.</p>
+
+        <p><b>Pipeline:</b></p>
+        <ol>
+          <li>Voxel downsample the SOURCE and TARGET point sets.</li>
+          <li>Normalize both point sets.</li>
+          <li>Run the ClusterReg backend.</li>
+          <li>Interpolate the displacement field back to the full SOURCE mesh.</li>
+          <li>Denormalize the result into the TARGET frame.</li>
+        </ol>
+
+        <p>The CPU and optional GPU backends are imported from the bundled <code>fuzzy_lib</code>
+        package. The bundled backend contains ClusterReg code distributed under AGPL-3.0.</p>
+        """
 
         parent.acknowledgementText = (
-            "Thanks to the 3D Slicer community. "
-            "This module uses code from ClusterReg by Zhao et al., "
+            "Developed by Juan Antonio De Rus Arance at the Escola Tècnica Superior "
+            "d'Enginyeria (ETSE-UV), Universitat de València, in the context of the "
+            "Signal Processing & Acoustic Technology (SPAT) research group. "
+            "Thanks to the 3D Slicer, SlicerMorph, VTK, NumPy, SciPy, Trimesh, and related "
+            "open-source communities."
+            "<p>This module uses code from ClusterReg by Zhao et al., "
             "\"Correspondence-Free Nonrigid Point Set Registration Using Unsupervised "
             "Clustering Analysis,\" CVPR 2024. "
-            "ClusterReg is distributed under the AGPL-3.0 license."
+            "ClusterReg is distributed under the AGPL-3.0 license.</p>"
         )
 # ---------------------------------------------------------------------------
 # Widget

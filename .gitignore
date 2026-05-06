@@ -1,12 +1,31 @@
+# Python bytecode / caches
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
-*.pyd
+*$py.class
 
+# Python packaging / build artifacts
+build/
+dist/
+*.egg-info/
+
+# Test / cache folders
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor / IDE folders
 .vscode/
 .idea/
 
+# OS junk
 .DS_Store
 Thumbs.db
+desktop.ini
 
+# Local logs
 *.log
+
+# Optional: local Slicer scene/session files
+*.mrml
+*.mrb

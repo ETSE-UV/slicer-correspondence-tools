@@ -12,12 +12,27 @@ class ETSE_UV__MeasurementTransfer(ScriptedLoadableModule):
         super().__init__(parent)
         parent.title = "ETSE-UV Measurement Transfer"
         parent.categories = ["ETSE_UV"]
-        parent.helpText = (
-            "Annotate distances on one ear using either:\n"
-            "  • A point list (pairs of points)\n"
-            "  • A set of Line markups (each line = 2 points)\n"
-            "Then store nearest mesh vertex indices + length, and recreate\n"
-            "distances on another registered ear mesh or in batch for many meshes."
+        parent.dependencies = []
+        parent.contributors = ["ETSE-UV"]
+        parent.helpText = """
+        <p>Transfer distance measurements from one registered ear mesh to another.</p>
+
+        <p><b>Supported input annotations:</b></p>
+        <ul>
+          <li>A fiducial point list where points are interpreted as pairs.</li>
+          <li>Multiple line markups, where each line has exactly two control points.</li>
+        </ul>
+
+        <p>The module stores nearest mesh vertex indices, line names, descriptions, and
+        source lengths in JSON. The same measurements can then be recreated on another
+        registered mesh or applied in batch to a folder of meshes.</p>
+        """
+        parent.acknowledgementText = (
+            "Developed by Juan Antonio De Rus Arance at the Escola Tècnica Superior "
+            "d'Enginyeria (ETSE-UV), Universitat de València, in the context of the "
+            "Signal Processing & Acoustic Technology (SPAT) research group. "
+            "Thanks to the 3D Slicer, SlicerMorph, VTK, NumPy, SciPy, Trimesh, and related "
+            "open-source communities."
         )
 
 

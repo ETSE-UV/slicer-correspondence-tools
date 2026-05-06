@@ -23,31 +23,15 @@ from slicer.ScriptedLoadableModule import *
 
 
 
-needInstall = False
-try:
-    import trimesh
-except ModuleNotFoundError:
-    needInstall = True
+from Resources.ETSE_UV__Dependencies import ensure_packages
 
-if needInstall:
-    progressDialog = slicer.util.createProgressDialog(
-        windowTitle="Installing...",
-        labelText="Installing Python packages. This may take a minute...",
-        maximum=0,
-    )
-    slicer.app.processEvents()
-    try:
-        slicer.util.pip_install(["trimesh"])
-    except:
-        slicer.util.infoDisplay("Issue while installing the Trimesh Python packages")
-        progressDialog.close()
+ensure_packages(
+    [("trimesh", "trimesh")],
+    interactive=False,
+    module_name="ETSE-UV Auto Registration",
+)
 
-    try:
-        import trimesh
-    except ModuleNotFoundError as e:
-        print("Module Not found. Please restart Slicer to load packages.")
-
-
+import trimesh
 # ---------------------------------------------------------------------------
 # Module
 # ---------------------------------------------------------------------------
@@ -57,23 +41,33 @@ class ETSE_UV__AutoRegistration(ScriptedLoadableModule):
         parent.title = "ETSE-UV Auto Registration"
         parent.categories = ["ETSE_UV"]
         parent.dependencies = []
-        parent.contributors = ["UV"]
-        parent.helpText = (
-            "Automatic pipeline that first performs a RIGID alignment (Procrustes / ICP / mesh_other)\n\n"
-            "and then a NON-RIGID deformation using Trimesh NRICP (Sumner + Amberg).\n\n"
-            "Inputs:\\nn"
-            "  - Template (SOURCE) model +/- fiducials.\n\n"
-            "  - Single TARGET model or a folder of TARGET meshes (batch mode).\n\n"
-            "Basic usage:\n\n"
-            "  1. Choose SOURCE and TARGET models.\n\n"
-            "  2. Optionally choose SOURCE/TARGET fiducials.\n\n"
-            "  3. Click 'Run automatic registration'.\n\n"
-            "Advanced options let you pick the rigid method (Procrustes / ICP / mesh_other),\n\n"
-            "whether to use landmarks, and which NRICP flavour to run (Sumner, Amberg, or both)."
-        )
+        parent.contributors = ["ETSE-UV"]
+        parent.helpText = """
+        <p><b>Automatic registration pipeline</b> for registering a SOURCE template mesh to a TARGET mesh.</p>
+
+        <p><b>Workflow:</b></p>
+        <ol>
+          <li>Select the SOURCE model.</li>
+          <li>Select either a single TARGET model or a folder of TARGET meshes for batch mode.</li>
+          <li>Optionally select corresponding SOURCE/TARGET fiducials.</li>
+          <li>Click <b>Run automatic registration</b>.</li>
+        </ol>
+
+        <p><b>Pipeline:</b></p>
+        <ul>
+          <li>Rigid alignment: Procrustes, ICP, mesh_other, or none.</li>
+          <li>Non-rigid deformation: Trimesh NRICP using Sumner, Amberg, both, or none.</li>
+        </ul>
+
+        <p>Advanced options control the rigid method, landmark usage, NRICP distance threshold,
+        and non-rigid method selection.</p>
+        """
         parent.acknowledgementText = (
-            "Thanks to the 3D Slicer and SlicerMorph communities, and to the Trimesh authors.\n"
-            "Builds on ETSE_UV__TrimeshRegistration and ETSE_UV__SumnerAmbergRegistration."
+            "Developed by Juan Antonio De Rus Arance at the Escola Tècnica Superior "
+            "d'Enginyeria (ETSE-UV), Universitat de València, in the context of the "
+            "Signal Processing & Acoustic Technology (SPAT) research group. "
+            "Thanks to the 3D Slicer, SlicerMorph, VTK, NumPy, SciPy, Trimesh, and related "
+            "open-source communities."
         )
 
 

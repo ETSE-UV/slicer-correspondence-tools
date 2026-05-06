@@ -27,17 +27,26 @@ class ETSE_UV__MeshPathTools(ScriptedLoadableModule):
         parent.categories = ["ETSE_UV"]
         parent.dependencies = []
         parent.contributors = ["ETSE-UV"]
-        parent.helpText = (
-            "Collection of simple mesh/markup tools:\n\n"
-            "  • Generate markups at every Nth vertex in a mesh.\n"
-            "  • Draw a straight-line path between ordered vertices of a mesh, "
-            "optionally closing the loop.\n\n"
-            "No geodesics are computed: paths are purely straight segments between "
-            "the selected vertices."
-        )
+        parent.helpText = """
+                        <p>Collection of simple mesh and markup tools.</p>
+
+                        <p><b>Tools:</b></p>
+                        <ul>
+                          <li>Generate markups at every Nth vertex of a mesh.</li>
+                          <li>Draw a straight-line path between ordered mesh vertices.</li>
+                          <li>Optionally close the path into a loop.</li>
+                        </ul>
+
+                        <p>No geodesics are computed. Paths are straight segments between selected vertices.</p>
+                        """
         parent.acknowledgementText = (
-            "This module combines tools developed by J.A. De Rus and the ETSE-UV team."
+            "Developed by Juan Antonio De Rus Arance at the Escola Tècnica Superior "
+            "d'Enginyeria (ETSE-UV), Universitat de València, in the context of the "
+            "Signal Processing & Acoustic Technology (SPAT) research group. "
+            "Thanks to the 3D Slicer, SlicerMorph, VTK, NumPy, SciPy, Trimesh, and related "
+            "open-source communities."
         )
+        
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ import ctk
 from slicer.ScriptedLoadableModule import *
 
 # ------------------------------------------------------------
-# Module (metadata) - RELEASE STYLE
+# Module metadata
 # ------------------------------------------------------------
 class ETSE_UV__FiducialIndexer(ScriptedLoadableModule):
     def __init__(self, parent):
@@ -15,15 +15,31 @@ class ETSE_UV__FiducialIndexer(ScriptedLoadableModule):
         parent.title = "ETSE-UV Fiducial Indexer"
         parent.categories = ["ETSE_UV"]
         parent.contributors = ["ETSE-UV"]
-        parent.helpText = (
-            "Compute the mesh-vertex index for each selected fiducial (closest vertex); "
-            "save/load these indices; and apply them to another mesh (same topology/indexing) "
-            "using a template fiducial node for labels/descriptions."
+        parent.helpText = """
+        <p>Compute and reuse mesh vertex indices from fiducial landmarks.</p>
+
+        <p><b>Workflow:</b></p>
+        <ol>
+          <li>Select a source mesh and a source fiducial node.</li>
+          <li>Choose the 1-based fiducial range to process.</li>
+          <li>Compute the closest mesh vertex index for each selected fiducial.</li>
+          <li>Save or load the stored indices.</li>
+          <li>Apply the same indices to another mesh with matching topology/indexing.</li>
+        </ol>
+
+        <p>The template fiducial node is used to copy labels and descriptions. Positions are
+        taken from the target mesh vertices.</p>
+        """
+        parent.acknowledgementText = (
+            "Developed by Juan Antonio De Rus Arance at the Escola Tècnica Superior "
+            "d'Enginyeria (ETSE-UV), Universitat de València, in the context of the "
+            "Signal Processing & Acoustic Technology (SPAT) research group. "
+            "Thanks to the 3D Slicer, SlicerMorph, VTK, NumPy, SciPy, Trimesh, and related "
+            "open-source communities."
         )
-        parent.acknowledgementText = "Developed by J.D.A. at ETSE-UV"
 
 # ------------------------------------------------------------
-# Widget (UI) - RELEASE STYLE
+# Widget (UI) 
 # ------------------------------------------------------------
 class ETSE_UV__FiducialIndexerWidget(ScriptedLoadableModuleWidget):
     def setup(self):
@@ -361,7 +377,7 @@ class ETSE_UV__FiducialIndexerWidget(ScriptedLoadableModuleWidget):
         alpha = float(self.delaunayAlphaSpin.value)
         clean = bool(self.delaunayCleanCheck.checked)
 
-        rangeText = self.rangeLineEdit.text  # <<< AÑADIDO
+        rangeText = self.rangeLineEdit.text  #  
 
         try:
             out = self.logic.create_delaunay_surface_from_fiducials(
@@ -370,7 +386,7 @@ class ETSE_UV__FiducialIndexerWidget(ScriptedLoadableModuleWidget):
                 mode=mode,
                 alpha=alpha,
                 clean=clean,
-                range_text=rangeText  # <<< AÑADIDO
+                range_text=rangeText  #  
             )
             slicer.util.infoDisplay(f"Created Delaunay model: {out.GetName()}")
         except Exception as e:
@@ -455,7 +471,7 @@ class ETSE_UV__FiducialIndexerWidget(ScriptedLoadableModuleWidget):
             slicer.util.errorDisplay(str(e))
 
 # ------------------------------------------------------------
-# Logic - RELEASE STYLE
+# Logic 
 # ------------------------------------------------------------
 class ETSE_UV__FiducialIndexerLogic(ScriptedLoadableModuleLogic):
     def __init__(self):

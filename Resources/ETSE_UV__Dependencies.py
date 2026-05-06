@@ -2,7 +2,6 @@ import importlib
 import slicer
 from slicer.ScriptedLoadableModule import *
 
-
 def ensure_packages(required_packages, interactive=False, module_name="This module"):
     """
     required_packages: list of (import_name, pip_name)

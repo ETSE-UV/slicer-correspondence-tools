@@ -39,14 +39,33 @@ class ETSE_UV__SumnerAmbergRegistration(ScriptedLoadableModule):
         parent.title = "ETSE-UV Sumner-Amberg Registration"
         parent.categories = ["ETSE_UV"]
         parent.dependencies = []
-        parent.contributors = ["UV"]
-        parent.helpText = (
-            "Non-rigidly register a SOURCE mesh to a TARGET mesh using Trimesh NRICP\n"
-            "(Sumner and/or Amberg variants). Requires corresponding SOURCE and TARGET\n"
-            "fiducials. You can also batch-process folders of target meshes + markups."
-        )
+        parent.contributors = ["ETSE-UV"]
+        parent.helpText = """
+        <p>Non-rigidly register a SOURCE mesh to a TARGET mesh using Trimesh NRICP
+        with the Sumner and/or Amberg variants.</p>
+
+        <p><b>Inputs:</b></p>
+        <ul>
+          <li>SOURCE model: the template mesh that will be deformed.</li>
+          <li>TARGET model: the mesh to match.</li>
+          <li>Optional SOURCE/TARGET fiducials: used as landmarks when landmark usage is enabled.</li>
+        </ul>
+
+        <p><b>Outputs:</b></p>
+        <ul>
+          <li>A registered model.</li>
+          <li>Projected fiducials on the registered model, when applicable.</li>
+          <li>Batch CSV logs when running folder processing.</li>
+        </ul>
+
+        <p>The Sumner and Amberg optimization schedules can be edited from the parameter tables.</p>
+        """
         parent.acknowledgementText = (
-            "Thanks to the 3D Slicer and SlicerMorph communities, and the Trimesh authors."
+            "Developed by Juan Antonio De Rus Arance at the Escola Tècnica Superior "
+            "d'Enginyeria (ETSE-UV), Universitat de València, in the context of the "
+            "Signal Processing & Acoustic Technology (SPAT) research group. "
+            "Thanks to the 3D Slicer, SlicerMorph, VTK, NumPy, SciPy, Trimesh, and related "
+            "open-source communities."
         )
 
 

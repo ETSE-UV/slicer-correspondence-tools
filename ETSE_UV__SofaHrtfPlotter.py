@@ -25,7 +25,17 @@ import qt
 import ctk
 from slicer.ScriptedLoadableModule import *
 
+from Resources.ETSE_UV__Dependencies import ensure_packages
 
+ensure_packages(
+    [
+        ("pythonosc", "python-osc"),
+        ("pyfar", "pyfar"),
+        ("sofar", "sofar"),
+    ],
+    interactive=False,
+    module_name="ETSE-UV SOFA HRTF Plotter",
+)
 # ---------------------------------------------------------------------------
 # Module metadata
 # ---------------------------------------------------------------------------
@@ -36,18 +46,26 @@ class ETSE_UV__SofaHrtfPlotter(ScriptedLoadableModule):
         parent.categories = ["ETSE_UV"]
         parent.dependencies = []
         parent.contributors = ["ETSE-UV"]
-        parent.helpText = (
-            "Basic live HRTF plotting module for 3D Slicer.\n\n"
-            "This first version provides:\n"
-            "  • OSC listener for source position and HRTF path.\n"
-            "  • SOFA loading with pyfar/sofar.\n"
-            "  • Single-sample plotting (time or frequency) for left/right ear.\n\n"
-            "The original standalone script was adapted to Slicer by replacing "
-            "argparse and the blocking infinite loop with a widget-based UI, a "
-            "background OSC server thread, and a Qt timer on the main thread."
-        )
+        parent.helpText = """
+                        <p>Live HRTF plotting module for 3D Slicer.</p>
+
+                        <p><b>Features:</b></p>
+                        <ul>
+                          <li>Start and stop an OSC listener for source position and HRTF path messages.</li>
+                          <li>Load SOFA files manually or from OSC.</li>
+                          <li>Plot the nearest HRTF sample in time or frequency representation.</li>
+                          <li>Choose left or right ear channel.</li>
+                        </ul>
+
+                        <p>The original standalone workflow was adapted to Slicer using a widget-based UI,
+                        a background OSC server thread, and a Qt timer on the main GUI thread.</p>
+                        """
         parent.acknowledgementText = (
-            "Adapted from an ETSE-UV live HRTF OSC plotting workflow."
+            "Developed by Juan Antonio De Rus Arance at the Escola Tècnica Superior "
+            "d'Enginyeria (ETSE-UV), Universitat de València, in the context of the "
+            "Signal Processing & Acoustic Technology (SPAT) research group. "
+            "Thanks to the 3D Slicer, SlicerMorph, VTK, NumPy, SciPy, Trimesh, and related "
+            "open-source communities."
         )
 
 
@@ -350,40 +368,15 @@ class ETSE_UV__SofaHrtfPlotterLogic(ScriptedLoadableModuleLogic):
         if self.dependenciesReady:
             return
 
-        requiredPackages = [
-            ("pythonosc", "python-osc"),
-            ("pyfar", "pyfar"),
-            ("sofar", "sofar"),
-        ]
-
-        missingPipPackages = []
-        for moduleName, pipName in requiredPackages:
-            try:
-                importlib.import_module(moduleName)
-            except ModuleNotFoundError:
-                missingPipPackages.append(pipName)
-
-        if missingPipPackages:
-            if interactive:
-                ok = slicer.util.confirmYesNoDisplay(
-                    "This module needs to install the following Python packages into "
-                    f"Slicer's Python environment:\n\n  - " + "\n  - ".join(missingPipPackages) +
-                    "\n\nContinue?",
-                    windowTitle="Install Python dependencies",
-                )
-                if not ok:
-                    raise RuntimeError("User cancelled dependency installation.")
-
-            progressDialog = slicer.util.createProgressDialog(
-                windowTitle="Installing...",
-                labelText="Installing Python packages. This may take a minute...",
-                maximum=0,
-            )
-            slicer.app.processEvents()
-            try:
-                slicer.util.pip_install(" ".join(missingPipPackages))
-            finally:
-                progressDialog.close()
+        ensure_packages(
+            [
+                ("pythonosc", "python-osc"),
+                ("pyfar", "pyfar"),
+                ("sofar", "sofar"),
+            ],
+            interactive=interactive,
+            module_name="ETSE-UV SOFA HRTF Plotter",
+        )
 
         try:
             from pythonosc.dispatcher import Dispatcher
@@ -395,15 +388,13 @@ class ETSE_UV__SofaHrtfPlotterLogic(ScriptedLoadableModuleLogic):
                 "Python packages were not imported successfully. "
                 "You may need to restart Slicer once after installation.\n\n"
                 f"Original error: {e}"
-            )
+            ) from e
 
         self.Dispatcher = Dispatcher
         self.osc_server = osc_server
         self.pf = pf
         self.sf = sf
         self.dependenciesReady = True
-        self.statusMessage = "Dependencies ready"
-
     # ------------------------------------------------------------------
     # OSC server
     # ------------------------------------------------------------------

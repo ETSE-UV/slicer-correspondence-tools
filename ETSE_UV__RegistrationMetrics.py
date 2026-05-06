@@ -29,31 +29,40 @@ class ETSE_UV__RegistrationMetrics(ScriptedLoadableModule):
         ScriptedLoadableModule.__init__(self, parent)
         parent.title = "ETSE-UV Registration Metrics"
         parent.categories = ["ETSE_UV"]
-        parent.contributors = ["ETSE-UV", "J.A. De Rus"]
+        parent.contributors = ["ETSE-UV"]
         parent.helpText = """
-        Calcula métricas de registro entre dos mallas (A=registrada, B=target) usando distancias a superficie:
+            <p>Compute registration metrics between two meshes using surface distances.</p>
 
-        - Distancias ABSOLUTE (módulo de la distancia a la superficie).
-        - Distancias SIGNED (positivas/negativas según el lado de la superficie).
+            <p><b>Mesh roles:</b></p>
+            <ul>
+              <li>Model A: registered mesh.</li>
+              <li>Model B: target mesh.</li>
+            </ul>
 
-        Para cada par A,B se calculan:
-        - Estadísticos unidireccionales A→B y B→A (mean, median, std, RMS, percentiles, Hausdorff one-sided).
-        - Métricas simétricas (Chamfer ABSOLUTE, Hausdorff ABSOLUTE simétrico).
-        - Estadísticos SIGNED A→B y B→A.
+            <p><b>Computed metrics:</b></p>
+            <ul>
+              <li>Absolute one-way A→B and B→A statistics.</li>
+              <li>Signed one-way A→B and B→A statistics.</li>
+              <li>Symmetric absolute Chamfer and Hausdorff metrics.</li>
+              <li>Mean, median, standard deviation, RMS, percentiles, and Hausdorff summaries.</li>
+            </ul>
 
-        Modos:
-        - Par único (modelos de la escena).
-        - Batch por carpetas (empareja por nombre base).
+            <p><b>Modes:</b></p>
+            <ul>
+              <li>Single pair from models loaded in the scene.</li>
+              <li>Batch folders, with pairs matched by base filename.</li>
+            </ul>
 
-        Salidas:
-        - JSON con métricas por par y resumen global.
-        - TXT con resumen global (incluye textos explicativos).
-        - CSV por par con todas las métricas agregadas (sin distancias por vértice).
-        - CSV global con resumen agregado sobre todos los pares.
-        """
-        parent.acknowledgementText = """
-        Desarrollado en ETSE-UV, basado en ideas de SlicerMorph y módulos personalizados previos.
-        """
+            <p><b>Outputs:</b> JSON, TXT summary, per-pair CSV, global CSV, and optional painted
+            distance scalar arrays on models.</p>
+            """
+        parent.acknowledgementText = (
+            "Developed by Juan Antonio De Rus Arance at the Escola Tècnica Superior "
+            "d'Enginyeria (ETSE-UV), Universitat de València, in the context of the "
+            "Signal Processing & Acoustic Technology (SPAT) research group. "
+            "Thanks to the 3D Slicer, SlicerMorph, VTK, NumPy, SciPy, Trimesh, and related "
+            "open-source communities."
+        )
 
 
 # ===========================
@@ -67,29 +76,29 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
 
         self.logic = ETSE_UV__RegistrationMetricsLogic()
 
-        # ---------- PAR ÚNICO ----------
+        # ---------- SINGLE PAIR ----------
         singleCollapsible = ctk.ctkCollapsibleButton()
-        singleCollapsible.text = "Procesamiento de un Solo Par (A=registrada, B=target)"
+        singleCollapsible.text = "Single Pair Processing (A=registered, B=target)"
         layout.addWidget(singleCollapsible)
         formSingle = qt.QFormLayout(singleCollapsible)
 
         self.singleASelector = self._modelCombo()
         self.singleBSelector = self._modelCombo()
-        formSingle.addRow("Modelo A (registrado):", self.singleASelector)
-        formSingle.addRow("Modelo B (target):", self.singleBSelector)
+        formSingle.addRow("Model A (registered):", self.singleASelector)
+        formSingle.addRow("Model B (target):", self.singleBSelector)
 
-        # Opcional: pintar distancias como escalar en los modelos (single pair)
-        paintBox = qt.QGroupBox("Pintar distancias en la escena (opcional)")
+        # Optional: paint distances as scalar arrays on the models (single pair)
+        paintBox = qt.QGroupBox("Paint distances in the scene (optional)")
         paintLayout = qt.QFormLayout(paintBox)
 
-        self.paintDistancesChk = qt.QCheckBox("Crear escalar de distancias en el/los modelos")
+        self.paintDistancesChk = qt.QCheckBox("Create distance scalar array on the model(s)")
         self.paintDistancesChk.checked = False
 
         self.paintModeCombo = qt.QComboBox()
-        self.paintModeCombo.addItem("ABS A→B (en modelo A)")
-        self.paintModeCombo.addItem("ABS B→A (en modelo B)")
-        self.paintModeCombo.addItem("SIGNED A→B (en modelo A)")
-        self.paintModeCombo.addItem("SIGNED B→A (en modelo B)")
+        self.paintModeCombo.addItem("ABS A→B (on model A)")
+        self.paintModeCombo.addItem("ABS B→A (on model B)")
+        self.paintModeCombo.addItem("SIGNED A→B (on model A)")
+        self.paintModeCombo.addItem("SIGNED B→A (on model B)")
 
         paintLayout.addRow(self.paintDistancesChk)
         paintLayout.addRow("Modo de pintado:", self.paintModeCombo)
@@ -97,25 +106,25 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
         formSingle.addRow(paintBox)
 
 
-        self.singleExportCsvChk = qt.QCheckBox("Exportar métricas para este par")
+        self.singleExportCsvChk = qt.QCheckBox("Export metrics for this pair")
         self.singleExportCsvChk.checked = True
         formSingle.addRow(self.singleExportCsvChk)
 
         self.singleJsonNameEdit = qt.QLineEdit("ETSE_UV_single_registration_metrics.json")
         self.singleTxtNameEdit = qt.QLineEdit("ETSE_UV_single_registration_metrics_summary.txt")
-        formSingle.addRow("Nombre archivo JSON:", self.singleJsonNameEdit)
-        formSingle.addRow("Nombre archivo TXT:", self.singleTxtNameEdit)
+        formSingle.addRow("JSON filename:", self.singleJsonNameEdit)
+        formSingle.addRow("TXT filename:", self.singleTxtNameEdit)
 
-        self.singleRunBtn = qt.QPushButton("Calcular métricas (Par Único)")
+        self.singleRunBtn = qt.QPushButton("Compute metrics (Single Pair)")
         formSingle.addRow(self.singleRunBtn)
         self.singleRunBtn.connect("clicked()", self.onRunSingle)
 
-        self.singleStatus = qt.QLabel("Listo.")
+        self.singleStatus = qt.QLabel("Ready.")
         formSingle.addRow(self.singleStatus)
 
         # ---------- BATCH ----------
         batchCollapsible = ctk.ctkCollapsibleButton()
-        batchCollapsible.text = "Procesamiento por Lotes (Carpetas A y B)"
+        batchCollapsible.text = "Batch Processing (Folders A and B)"
         layout.addWidget(batchCollapsible)
         formBatch = qt.QFormLayout(batchCollapsible)
 
@@ -125,32 +134,32 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
 
         self.batchExtEdit = qt.QLineEdit("vtk vtp stl ply obj")
 
-        self.batchExportCsvChk = qt.QCheckBox("Exportar por par")
+        self.batchExportCsvChk = qt.QCheckBox("Export per-pair metrics")
         self.batchExportCsvChk.checked = True
 
         self.batchJsonNameEdit = qt.QLineEdit("ETSE_UV_registration_metrics_dataset.json")
         self.batchTxtNameEdit = qt.QLineEdit("ETSE_UV_registration_metrics_dataset_summary.txt")
 
-        formBatch.addRow("Carpeta Modelos A (registrados):", self.batchAFolderBtn)
-        formBatch.addRow("Carpeta Modelos B (target):", self.batchBFolderBtn)
-        formBatch.addRow("Carpeta de salida:", self.batchOutFolderBtn)
-        formBatch.addRow("Extensiones (separadas por espacio):", self.batchExtEdit)
+        formBatch.addRow("Folder with Model A files (registered):", self.batchAFolderBtn)
+        formBatch.addRow("Folder with Model B files (target):", self.batchBFolderBtn)
+        formBatch.addRow("Output folder:", self.batchOutFolderBtn)
+        formBatch.addRow("Extensions (space-separated):", self.batchExtEdit)
         formBatch.addRow(self.batchExportCsvChk)
-        formBatch.addRow("Nombre archivo JSON:", self.batchJsonNameEdit)
-        formBatch.addRow("Nombre archivo TXT:", self.batchTxtNameEdit)
+        formBatch.addRow("JSON filename:", self.batchJsonNameEdit)
+        formBatch.addRow("TXT filename:", self.batchTxtNameEdit)
 
-        # Opcional: modelos pintados en batch (crea modelos nuevos, no toca originales)
-        paintBatchBox = qt.QGroupBox("Pintar distancias (batch, crea modelos nuevos)")
+        # Optional: painted models in batch (creates new models, leaves originals unchanged)
+        paintBatchBox = qt.QGroupBox("Paint distances (batch, creates new models)")
         paintBatchLayout = qt.QFormLayout(paintBatchBox)
 
-        self.batchPaintChk = qt.QCheckBox("Crear modelos pintados con distancias")
+        self.batchPaintChk = qt.QCheckBox("Create painted models with distances")
         self.batchPaintChk.checked = False
 
         self.batchPaintModeCombo = qt.QComboBox()
-        self.batchPaintModeCombo.addItem("ABS A→B (en modelo A)")
-        self.batchPaintModeCombo.addItem("ABS B→A (en modelo B)")
-        self.batchPaintModeCombo.addItem("SIGNED A→B (en modelo A)")
-        self.batchPaintModeCombo.addItem("SIGNED B→A (en modelo B)")
+        self.batchPaintModeCombo.addItem("ABS A→B (on model A)")
+        self.batchPaintModeCombo.addItem("ABS B→A (on model B)")
+        self.batchPaintModeCombo.addItem("SIGNED A→B (on model A)")
+        self.batchPaintModeCombo.addItem("SIGNED B→A (on model B)")
 
         paintBatchLayout.addRow(self.batchPaintChk)
         paintBatchLayout.addRow("Modo de pintado:", self.batchPaintModeCombo)
@@ -158,11 +167,11 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
         formBatch.addRow(paintBatchBox)
 
 
-        self.batchRunBtn = qt.QPushButton("Calcular métricas (Batch)")
+        self.batchRunBtn = qt.QPushButton("Compute metrics (Batch)")
         formBatch.addRow(self.batchRunBtn)
         self.batchRunBtn.connect("clicked()", self.onRunBatch)
 
-        self.batchStatus = qt.QLabel("Listo.")
+        self.batchStatus = qt.QLabel("Ready.")
         formBatch.addRow(self.batchStatus)
 
         layout.addStretch(1)
@@ -177,19 +186,19 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
         w.setMRMLScene(slicer.mrmlScene)
         return w
 
-    # ---------- PAR ÚNICO ----------
+    # ---------- SINGLE PAIR ----------
     def onRunSingle(self):
         if trimesh is None:
-            slicer.util.errorDisplay("Instala 'trimesh' para usar este módulo.")
+            slicer.util.errorDisplay("Install 'trimesh' to use this module.")
             return
 
         A = self.singleASelector.currentNode()
         B = self.singleBSelector.currentNode()
         if not A or not B:
-            slicer.util.errorDisplay("Selecciona ambos modelos: A (registrado) y B (target).")
+            slicer.util.errorDisplay("Select both models: A (registered) and B (target).")
             return
 
-        # Directorio de salida por defecto: carpeta de escena o HOME
+        # Default output directory: scene folder or HOME
         outDir = slicer.app.defaultScenePath if slicer.app.defaultScenePath else os.path.expanduser("~")
 
         jsonPath = os.path.join(
@@ -203,7 +212,7 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
         globalCsvName = os.path.splitext(os.path.basename(txtPath))[0] + "_global_summary.csv"
 
         try:
-            # 1) calcular métricas del par
+            # 1) compute pair metrics
             pairRes = self.logic.compute_metrics_for_pair(
                 modelA=A,
                 modelB=B,
@@ -211,25 +220,25 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
                 nameB=B.GetName()
             )
 
-            # 2) construir GLOBAL usando SIEMPRE el agregador (aunque sólo haya 1 par)
+            # 2) always build GLOBAL through the aggregator, even for one pair
             globalRes = self.logic.aggregate_global_metrics([pairRes])
 
             # Consola (par + global)
             self.logic.print_pair_to_console(pairRes)
             self.logic.print_global_to_console(globalRes)
 
-            # 2.5) Opcional: pintar distancias como escalar en los modelos
+            # 2.5) Optional: paint distances as scalar arrays on the models
             if self.paintDistancesChk.checked:
                 mode = self.paintModeCombo.currentText
                 try:
                     self.logic.paint_distances_on_models(A, B, mode)
                 except Exception as e:
                     slicer.util.warningDisplay(
-                        f"No se pudieron pintar las distancias en los modelos ({mode}): {e}"
+                        f"Could not paint distances on the models ({mode}): {e}"
                     )
 
 
-            # ¿Guardamos algo en disco?
+            # Should results be written to disk?
             if self.singleExportCsvChk.checked:
                 dataset = {"pairs": [pairRes], "GLOBAL": globalRes}
                 with open(jsonPath, "w", encoding="utf-8") as f:
@@ -237,7 +246,7 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
                 with open(txtPath, "w", encoding="utf-8") as f:
                     f.write(self.logic.format_global_summary_txt(globalRes))
 
-                # CSV por par
+                # Per-pair CSV
                 base = self.logic.common_base_name(
                     pairRes["name_of_model_A"],
                     pairRes["name_of_model_B"]
@@ -250,7 +259,7 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
                 )
 
                 msg = (
-                    f"Hecho.\n"
+                    f"Done.\n"
                     f"JSON: {jsonPath}\n"
                     f"TXT: {txtPath}\n"
                     f"CSV global: {globalCsvPath}"
@@ -258,8 +267,8 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
             else:
                 # NO se guarda NADA (ni CSV, ni JSON, ni TXT)
                 msg = (
-                    "Hecho (sin guardar archivos en disco).\n"
-                    "La casilla 'Exportar CSV de métricas para este par' está desactivada."
+                    "Done (without writing files to disk).\n"
+                    "The 'Export metrics for this pair' checkbox is disabled."
                 )
 
             self.singleStatus.setText(msg)
@@ -273,7 +282,7 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
     # ---------- BATCH ----------
     def onRunBatch(self):
         if trimesh is None:
-            slicer.util.errorDisplay("Instala 'trimesh' para usar este módulo.")
+            slicer.util.errorDisplay("Install 'trimesh' to use this module.")
             return
 
         dirA = self.batchAFolderBtn.directory
@@ -281,12 +290,12 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
         outDir = self.batchOutFolderBtn.directory
 
         if not (os.path.isdir(dirA) and os.path.isdir(dirB) and os.path.isdir(outDir)):
-            slicer.util.errorDisplay("Revisa las carpetas de A, B y salida.")
+            slicer.util.errorDisplay("Check the A, B, and output folders.")
             return
 
         exts = [e.strip().lstrip(".") for e in self.batchExtEdit.text.split(" ") if e.strip()]
         if not exts:
-            slicer.util.errorDisplay("Introduce al menos una extensión de archivo.")
+            slicer.util.errorDisplay("Enter at least one file extension.")
             return
 
         jsonPath = os.path.join(
@@ -298,17 +307,17 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
             self.batchTxtNameEdit.text.strip() or "ETSE_UV_registration_metrics_dataset_summary.txt"
         )
         globalCsvName = os.path.splitext(os.path.basename(txtPath))[0] + "_global_summary.csv"
-        exportAll = self.batchExportCsvChk.checked  # AHORA: controla TODO (CSV+JSON+TXT)
+        exportAll = self.batchExportCsvChk.checked  # Controls all exports (CSV+JSON+TXT)
 
-        self.batchStatus.setText("Buscando archivos...")
+        self.batchStatus.setText("Searching files...")
         slicer.app.processEvents()
 
-        # Recolectar archivos de A
+        # Collect A files
         input_files_A = []
         for ext in exts:
             input_files_A.extend(glob.glob(os.path.join(dirA, f"*.{ext}")))
         if not input_files_A:
-            self.batchStatus.setText("No se encontraron modelos en carpeta A.")
+            self.batchStatus.setText("No models were found in folder A.")
             return
 
         pairs_results = []
@@ -317,7 +326,7 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
         for a_path in sorted(input_files_A):
             base = os.path.splitext(os.path.basename(a_path))[0]
 
-            # Buscar B con la misma base + cualquier extensión permitida
+            # Look for B with the same base name and any allowed extension
             b_path = None
             for ext in exts:
                 candidate = os.path.join(dirB, f"{base}.{ext}")
@@ -326,12 +335,12 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
                     break
 
             if not b_path:
-                self.batchStatus.setText(f"Saltando: no hay modelo B para '{os.path.basename(a_path)}'")
+                self.batchStatus.setText(f"Skipping: no model B for '{os.path.basename(a_path)}'")
                 slicer.app.processEvents()
                 continue
 
             self.batchStatus.setText(
-                f"Procesando par: {os.path.basename(a_path)}  ↔  {os.path.basename(b_path)}"
+                f"Processing pair: {os.path.basename(a_path)}  ↔  {os.path.basename(b_path)}"
             )
             slicer.app.processEvents()
 
@@ -358,36 +367,36 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
                 pairs_results.append(pairRes)
                 processed += 1
 
-                # CSV por par SOLO si exportAll
+                # Per-pair CSV SOLO si exportAll
                 if exportAll:
                     base_name = self.logic.common_base_name(
                         pairRes["name_of_model_A"],
                         pairRes["name_of_model_B"]
                     )
                     self.logic.export_pair_metrics_to_csv(outDir, base_name, pairRes)
-                # Modelos pintados opcionales (no modifican A ni B, crean clones)
+                # Optional painted models (do not modify A or B; create clones)
                 if hasattr(self, "batchPaintChk") and self.batchPaintChk.checked:
                     mode = self.batchPaintModeCombo.currentText
                     try:
                         self.logic.paint_distances_on_models(A, B, mode)
                     except Exception as e:
                         slicer.util.warningDisplay(
-                            f"No se pudieron pintar las distancias para el par '{base}' ({mode}): {e}"
+                            f"Could not paint distances for pair '{base}' ({mode}): {e}"
                         )
             except Exception as e:
-                slicer.util.errorDisplay(f"Error procesando par '{base}': {e}")
+                slicer.util.errorDisplay(f"Error processing pair '{base}': {e}")
             finally:
                 slicer.mrmlScene.RemoveNode(A)
                 slicer.mrmlScene.RemoveNode(B)
 
-        # Resumen global en memoria
+        # In-memory global summary
         globalRes = self.logic.aggregate_global_metrics(pairs_results)
         self.logic.print_global_to_console(globalRes)
 
         globalCsvPath = None
 
         if exportAll and pairs_results:
-            # JSON + TXT + CSV global SOLO si exportAll == True
+            # JSON + TXT + global CSV only if exportAll is true
             dataset = {"pairs": pairs_results, "GLOBAL": globalRes}
             with open(jsonPath, "w", encoding="utf-8") as f:
                 json.dump(dataset, f, indent=2, ensure_ascii=False)
@@ -399,15 +408,15 @@ class ETSE_UV__RegistrationMetricsWidget(ScriptedLoadableModuleWidget):
             )
 
             msg = (
-                f"Completado. {processed} pares procesados.\n"
+                f"Completed. {processed} pairs processed.\n"
                 f"JSON: {jsonPath}\nTXT: {txtPath}\nCSV global: {globalCsvPath}"
             )
         else:
             # NO se guarda NADA a disco
             msg = (
-                f"Completado. {processed} pares procesados.\n"
-                f"No se han guardado archivos (CSV/JSON/TXT) porque "
-                f"'Exportar CSV de métricas por par' está desactivado."
+                f"Completed. {processed} pairs processed.\n"
+                f"No files were written (CSV/JSON/TXT) because "
+                f"'Export per-pair metrics' is disabled."
             )
 
         self.batchStatus.setText(msg)
@@ -434,7 +443,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
         print("\n[ETSE_UV__RegistrationMetrics] PAR")
         print(f"  A (registrado) : {Aname}")
         print(f"  B (target)     : {Bname}")
-        print(f"  #puntos A = {pairRes['number_of_points_in_A']}, #puntos B = {pairRes['number_of_points_in_B']}")
+        print(f"  #points A = {pairRes['number_of_points_in_A']}, #points B = {pairRes['number_of_points_in_B']}")
 
         # ABSOLUTE A→B
         print("  ABSOLUTE distance A→B (from A vertices to closest point on B surface):")
@@ -447,7 +456,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
         print(f"    p95 = {abs_AB['percentile_95_absolute_distance_from_A_vertices_to_closest_point_on_B_surface']:.6f}")
         print(f"    p99 = {abs_AB['percentile_99_absolute_distance_from_A_vertices_to_closest_point_on_B_surface']:.6f}")
         print(f"    sum = {abs_AB['sum_of_absolute_distances_from_A_vertices_to_closest_point_on_B_surface']:.6f} "
-              f"(depende del nº de puntos de A)")
+              f"(depends on the number of points in A)")
         print(f"    number_of_points_in_A = {abs_AB['number_of_points_in_A']}")
 
         # ABSOLUTE B→A
@@ -461,7 +470,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
         print(f"    p95 = {abs_BA['percentile_95_absolute_distance_from_B_vertices_to_closest_point_on_A_surface']:.6f}")
         print(f"    p99 = {abs_BA['percentile_99_absolute_distance_from_B_vertices_to_closest_point_on_A_surface']:.6f}")
         print(f"    sum = {abs_BA['sum_of_absolute_distances_from_B_vertices_to_closest_point_on_A_surface']:.6f} "
-              f"(depende del nº de puntos de B)")
+              f"(depends on the number of points in B)")
         print(f"    number_of_points_in_B = {abs_BA['number_of_points_in_B']}")
 
         # ABSOLUTE symmetric (Chamfer/Hausdorff)
@@ -507,8 +516,8 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
 
     def _nice_label_for_global_metric_key(self, key):
         """
-        Etiquetas más legibles para el resumen global.
-        Para las que no estén aquí, se usa el nombre de clave tal cual.
+        More readable labels for the global summary.
+        For keys that are not listed here, the raw key name is used.
         """
         mapping = {
             # Symmetric ABSOLUTE (Chamfer / Hausdorff)
@@ -528,11 +537,11 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
         return mapping.get(key, key)
 
     def print_global_to_console(self, globalRes):
-        print("\n[ETSE_UV__RegistrationMetrics] RESUMEN GLOBAL DEL DATASET")
+        print("\n[ETSE_UV__RegistrationMetrics] GLOBAL DATASET SUMMARY")
         if not globalRes or globalRes.get("number_of_pairs", 0) == 0:
-            print("  Sin pares procesados.")
+            print("  Sin pairs processed.")
             return
-        print(f"  Número de pares: {globalRes['number_of_pairs']}")
+        print(f"  Number of pairs: {globalRes['number_of_pairs']}")
 
         for key, stats in globalRes.get("metrics_aggregate_over_pairs", {}).items():
             label = self._nice_label_for_global_metric_key(key)
@@ -555,29 +564,29 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
         return f"{a}__vs__{b}"
 
     def _base_name(self, name_or_path):
-        """Nombre base sin ruta ni extensión."""
+        """Base name without path or extension."""
         return os.path.splitext(os.path.basename(name_or_path))[0]
 
     def create_painted_model_with_distances(self, sourceModelNode, distances, arrayName, newNodeName):
         """
-        Crea un NUEVO vtkMRMLModelNode que es un clon del modelo original
-        pero con un array escalar por punto llamado `arrayName` con las distancias.
-        El modelo original NO se modifica.
+        Create a NEW vtkMRMLModelNode that is a clone of the original model
+        but with a point scalar array named `arrayName` containing the distances.
+        The model original NO se modifica.
         """
         polyData = sourceModelNode.GetPolyData()
         if polyData is None:
             raise ValueError(
-                f"El modelo '{sourceModelNode.GetName()}' no tiene PolyData para añadir escalares."
+                f"The model '{sourceModelNode.GetName()}' has no PolyData to add scalars."
             )
 
         n_points = polyData.GetNumberOfPoints()
         if n_points != len(distances):
             raise ValueError(
-                f"El número de puntos del modelo ({n_points}) no coincide con el tamaño "
-                f"del vector de distancias ({len(distances)})."
+                f"The number of model points ({n_points}) does not match the size "
+                f"of the distance vector ({len(distances)})."
             )
 
-        # Copiar geometría
+        # Copy geometry
         polyCopy = vtk.vtkPolyData()
         polyCopy.DeepCopy(polyData)
 
@@ -594,7 +603,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
         pd.SetActiveScalars(arrayName)
         pd.Modified()
 
-        # Crear nuevo nodo
+        # Create new node
         newNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", newNodeName)
         newNode.SetAndObservePolyData(polyCopy)
 
@@ -620,7 +629,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
     def _vtk_model_to_trimesh(self, modelNode):
         poly = modelNode.GetPolyData()
         if poly is None or poly.GetNumberOfPoints() == 0:
-            raise ValueError(f"El modelo '{modelNode.GetName()}' no tiene puntos.")
+            raise ValueError(f"The model '{modelNode.GetName()}' has no points.")
 
         V = vtk_np.vtk_to_numpy(poly.GetPoints().GetData())
 
@@ -630,8 +639,8 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
         else:
             if V.shape[0] < 3:
                 raise ValueError(
-                    f"El modelo '{modelNode.GetName()}' tiene <3 puntos y sin caras, "
-                    f"no se puede crear una malla válida."
+                    f"The model '{modelNode.GetName()}' has <3 points and no faces, "
+                    f"a valid mesh cannot be created."
                 )
             F = np.array([[0, 1, 2]])
 
@@ -639,14 +648,14 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
 
     def _closest_absolute_distances(self, from_vertices, to_mesh, chunk_size=100000):
         """
-        Distancias absolutas vértice-superficie (A→B o B→A) calculadas en bloques
-        para reducir el uso máximo de memoria. El resultado es el mismo que llamar
+        Absolute vertex-to-surface distances (A→B o B→A) computed in blocks
+        to reduce peak memory usage. The result is the same as calling
         a trimesh.proximity.closest_point de una sola vez.
         """
         verts = np.asarray(from_vertices)
         n = verts.shape[0]
 
-        # Preasignar array de salida
+        # Preallocate output array
         dists = np.empty(n, dtype=np.float64)
 
         # Procesar en bloques
@@ -662,8 +671,8 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
 
     def _signed_distances(self, from_vertices, to_mesh, chunk_size=100000):
         """
-        Distancias con signo vértice-superficie calculadas en bloques.
-        Misma lógica que signed_distance completo, pero con menor pico de memoria.
+        Distances con signo vertex-to-surface computed in blocks.
+        Same logic as full signed_distance, but with lower peak memory usage.
         """
         verts = np.asarray(from_vertices)
         n = verts.shape[0]
@@ -682,20 +691,20 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
 
     def addDistancesAsScalarsToModel(self, modelNode, distances, arrayName="Distance"):
         """
-        Añade un vector de distancias como array escalar de punto en el modelo dado
-        y lo activa para visualización.
+        Add a distance vector as a point scalar array on the given model
+        and activate it for visualization.
         """
         polyData = modelNode.GetPolyData()
         if polyData is None:
             raise ValueError(
-                f"El modelo '{modelNode.GetName()}' no tiene PolyData para añadir escalares."
+                f"The model '{modelNode.GetName()}' has no PolyData to add scalars."
             )
 
         n_points = polyData.GetNumberOfPoints()
         if n_points != len(distances):
             raise ValueError(
-                f"El número de puntos del modelo ({n_points}) no coincide con el tamaño "
-                f"del vector de distancias ({len(distances)})."
+                f"The number of model points ({n_points}) does not match the size "
+                f"of the distance vector ({len(distances)})."
             )
 
         distances = np.asarray(distances, dtype=np.float64)
@@ -721,18 +730,18 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
 
     def paint_distances_on_models(self, modelA, modelB, mode_text):
         """
-        Calcula distancias vértice-superficie y crea NUEVOS modelos pintados,
-        sin modificar los modelos originales.
-        Devuelve el/los nuevos nodos creados (lista).
+        Compute vertex-to-surface distances and create NEW painted models,
+        without modifying the original models.
+        Return the created new node(s) as a list.
 
-        Modos (mode_text):
-          - 'ABS A→B (en modelo A)'    -> |dist| de vértices A a superficie B, pintado en clon de A
-          - 'ABS B→A (en modelo B)'    -> |dist| de vértices B a superficie A, pintado en clon de B
-          - 'SIGNED A→B (en modelo A)' -> dist. con signo A→B, pintado en clon de A
-          - 'SIGNED B→A (en modelo B)' -> dist. con signo B→A, pintado en clon de B
+        Modes (mode_text):
+          - 'ABS A→B (on model A)'    -> |dist| de vertices from A to surface B, painted on an A clone
+          - 'ABS B→A (on model B)'    -> |dist| de vertices from B to surface A, painted on a B clone
+          - 'SIGNED A→B (on model A)' -> signed distance A→B, painted on an A clone
+          - 'SIGNED B→A (on model B)' -> signed distance B→A, painted on a B clone
         """
         if trimesh is None:
-            raise RuntimeError("El módulo 'trimesh' no está disponible.")
+            raise RuntimeError("The 'trimesh' module is not available.")
 
         tmA = self._vtk_model_to_trimesh(modelA)
         tmB = self._vtk_model_to_trimesh(modelB)
@@ -776,7 +785,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
             )
 
         else:
-            raise ValueError(f"Modo de pintado no reconocido: '{mode_text}'")
+            raise ValueError(f"Unrecognized paint mode: '{mode_text}'")
 
         return new_nodes
 
@@ -784,7 +793,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
     def _stats_absolute_A_to_B(self, dists, n_points, who="A", to="B"):
         d = np.asarray(dists)
         if d.size == 0:
-            raise ValueError("Vector de distancias (absolute) vacío.")
+            raise ValueError("Distance vector (absolute) is empty.")
 
         mean = float(np.mean(d))
         median = float(np.median(d))
@@ -830,7 +839,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
     def _stats_signed_A_to_B(self, dists, n_points, who="A", to="B"):
         d = np.asarray(dists)
         if d.size == 0:
-            raise ValueError("Vector de distancias (signed) vacío.")
+            raise ValueError("Distance vector (signed) is empty.")
 
         mean = float(np.mean(d))
         median = float(np.median(d))
@@ -867,23 +876,23 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
 
         return out
 
-    # ---------- Métricas por par ----------
+    # ---------- Pair metrics ----------
     def compute_metrics_for_pair(self, modelA, modelB, nameA=None, nameB=None):
         """
-        A: modelo registrado, B: modelo target.
-        Calcula y devuelve TODAS las métricas para UN PAR:
+        A: registered model, B: target model.
+        Compute and return ALL metrics for ONE PAIR:
 
-          - Distancias ABSOLUTE (closest) A→B y B→A.
-          - Métricas ABSOLUTE simétricas (Chamfer / Hausdorff).
-          - Distancias SIGNED A→B y B→A.
+          - ABSOLUTE closest-surface distances A→B and B→A.
+          - Symmetric ABSOLUTE metrics (Chamfer / Hausdorff).
+          - SIGNED distances A→B and B→A.
 
-        Chamfer y Hausdorff se calculan sobre distancias ABSOLUTE.
+        Chamfer and Hausdorff are computed from ABSOLUTE distances.
 
         Devuelve:
-            pair (dict con todas las métricas para ese par).
+            pair (dict with all metrics for that pair).
         """
         if trimesh is None:
-            raise RuntimeError("El módulo 'trimesh' no está disponible.")
+            raise RuntimeError("The 'trimesh' module is not available.")
 
         tmA = self._vtk_model_to_trimesh(modelA)
         tmB = self._vtk_model_to_trimesh(modelB)
@@ -947,7 +956,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
             signed_B_to_A = self._stats_signed_A_to_B(d_BA_signed, nB, who="B", to="A")
         except Exception as e:
             slicer.util.warningDisplay(
-                f"Distancia SIGNED no disponible para este par "
+                f"SIGNED distance is not available for this pair "
                 f"({nameA or modelA.GetName()} vs {nameB or modelB.GetName()}): {e}"
             )
 
@@ -971,20 +980,20 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
 
         return pair
 
-    # ---------- Agregación global ----------
+    # ---------- Global aggregation ----------
     def aggregate_global_metrics(self, pairs_list):
         """
         Aggrega sobre TODOS los pares:
-          - Métricas simétricas ABSOLUTE (Chamfer/Hausdorff).
-          - Métricas unidireccionales ABSOLUTE A→B y B→A
-            (todas las que están en los dicts A_to_B y B_to_A).
+          - Symmetric ABSOLUTE metrics (Chamfer/Hausdorff).
+          - One-way ABSOLUTE metrics A→B and B→A
+            (all metrics present in the A_to_B and B_to_A dictionaries).
         """
         if not pairs_list:
             return {"number_of_pairs": 0, "metrics_aggregate_over_pairs": {}}
 
         agg = {}
 
-        # ---- 1) Métricas symmétricas (symmetric_AB_and_BA) ----
+        # ---- 1) Symmetric metrics (symmetric_AB_and_BA) ----
         symmetric_keys = [
             "chamfer_absolute_distance_symmetric_mean_of_means_between_A_and_B",
             "chamfer_absolute_distance_symmetric_weighted_mean_between_A_and_B",
@@ -1012,7 +1021,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
                     "count": int(len(vals)),
                 }
 
-        # ---- 2) Métricas unidireccionales ABSOLUTE A→B y B→A ----
+        # ---- 2) One-way ABSOLUTE metrics A→B and B→A ----
         # Tomamos las claves del primer par como referencia.
         example_A_to_B = pairs_list[0]["metrics"]["absolute_distance_to_surface"]["A_to_B"]
         example_B_to_A = pairs_list[0]["metrics"]["absolute_distance_to_surface"]["B_to_A"]
@@ -1061,19 +1070,19 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
         """
         Devuelve un TXT con:
           - nº de pares
-          - sección de métricas simétricas
-          - sección ABSOLUTE A→B con texto explicativo
-          - sección ABSOLUTE B→A con texto explicativo
+          - symmetric metrics section
+          - ABSOLUTE A→B section with explanatory text
+          - ABSOLUTE B→A section with explanatory text
         """
         if not globalRes or globalRes.get("number_of_pairs", 0) == 0:
-            return "Sin pares procesados.\n"
+            return "Sin pairs processed.\n"
 
         agg = globalRes["metrics_aggregate_over_pairs"]
         lines = []
-        lines.append(f"Número de pares: {globalRes['number_of_pairs']}")
+        lines.append(f"Number of pairs: {globalRes['number_of_pairs']}")
         lines.append("")
 
-        # Clasificamos claves según su tipo
+        # Classify keys according to type
         sym_keys = [k for k in agg.keys() if "symmetric" in k]
         a2b_keys = [k for k in agg.keys() if "from_A_vertices_to_closest_point_on_B_surface" in k]
         b2a_keys = [k for k in agg.keys() if "from_B_vertices_to_closest_point_on_A_surface" in k]
@@ -1083,7 +1092,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
             if k not in sym_keys and k not in a2b_keys and k not in b2a_keys
         ]
 
-        # ---- Métricas simétricas (Chamfer/Hausdorff) ----
+        # ---- Symmetric metrics (Chamfer/Hausdorff) ----
         lines.append("=== ABSOLUTE symmetric metrics between A and B (Chamfer / Hausdorff) ===")
         for key in sym_keys:
             stats = agg[key]
@@ -1150,7 +1159,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
     # ---------- Export CSV (por par) ----------
     def export_pair_metrics_to_csv(self, outDir, base, pairRes):
         """
-        Crea un CSV por par con SOLO métricas agregadas (nada de distancias por vértice):
+        Create a per-pair CSV with ONLY aggregate metrics (no per-vertex distances):
           - {base}_ETSE_UV_registration_metrics.csv
         """
         os.makedirs(outDir, exist_ok=True)
@@ -1190,7 +1199,7 @@ class ETSE_UV__RegistrationMetricsLogic(ScriptedLoadableModuleLogic):
     # ---------- Export CSV (global summary) ----------
     def export_global_summary_to_csv(self, outDir, fileName, globalRes):
         """
-        CSV global de resumen:
+        Global summary CSV:
           - columnas: metric_key, metric_label, mean_over_pairs, median_over_pairs,
                       std_over_pairs, min_value, max_value, n_pairs_used
         """

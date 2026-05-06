@@ -27,30 +27,15 @@ import ctk
 from slicer.ScriptedLoadableModule import *
 
 
-needInstall = False
-try:
-    import trimesh
-except ModuleNotFoundError:
-    needInstall = True
+from Resources.ETSE_UV__Dependencies import ensure_packages
 
-if needInstall:
-    progressDialog = slicer.util.createProgressDialog(
-        windowTitle="Installing...",
-        labelText="Installing Python packages. This may take a minute...",
-        maximum=0,
-    )
-    slicer.app.processEvents()
-    try:
-        slicer.util.pip_install(["trimesh"])
-    except:
-        slicer.util.infoDisplay("Issue while installing the Trimesh Python packages")
-        progressDialog.close()
+ensure_packages(
+    [("trimesh", "trimesh")],
+    interactive=False,
+    module_name="ETSE-UV Trimesh Registration",
+)
 
-    try:
-        import trimesh
-    except ModuleNotFoundError as e:
-        print("Module Not found. Please restart Slicer to load packages.")
-
+import trimesh
 
 # ---------------------------------------------------------------------------
 # Module
@@ -64,19 +49,35 @@ class ETSE_UV__TrimeshRegistration(ScriptedLoadableModule):
         parent.title = "ETSE-UV Trimesh Registration"
         parent.categories = ["ETSE_UV"]
         parent.dependencies = []
-        parent.contributors = ["UV"]
-        parent.helpText = (
-            "Register a SOURCE (template) mesh to a TARGET mesh using methods from\n"
-            "trimesh.registration: icp, mesh_other, nricp_amberg, nricp_sumner, and procrustes.\n\n"
-            "Fiducials:\n"
-            "  - Procrustes: requires corresponding SOURCE and TARGET fiducials.\n"
-            "  - NRICP (Amberg/Sumner): can use fiducials if provided, but they are optional.\n"
-            "  - ICP / mesh_other: ignore fiducials.\n\n"
-            "Batch mode allows registering one SOURCE template to many TARGETS, with logs\n"
-            "saved in the output folder as CSV."
-        )
+        parent.contributors = ["ETSE-UV"]
+        parent.helpText = """
+        <p>Register a SOURCE template mesh to a TARGET mesh using methods from <code>trimesh.registration</code>.</p>
+
+        <p><b>Available methods:</b></p>
+        <ul>
+          <li>Rigid ICP (<code>icp</code>).</li>
+          <li>Rigid ICP with PCA initialization (<code>mesh_other</code>).</li>
+          <li>Non-rigid ICP, Amberg variant (<code>nricp_amberg</code>).</li>
+          <li>Non-rigid ICP, Sumner variant (<code>nricp_sumner</code>).</li>
+          <li>Procrustes landmark-based alignment.</li>
+        </ul>
+
+        <p><b>Fiducials:</b></p>
+        <ul>
+          <li>Procrustes requires corresponding SOURCE and TARGET fiducials.</li>
+          <li>NRICP can use fiducials if provided, but they are optional.</li>
+          <li>ICP and mesh_other ignore fiducials.</li>
+        </ul>
+
+        <p>Batch mode registers one SOURCE template to many TARGET meshes and writes a CSV log
+        to the output folder.</p>
+"""
         parent.acknowledgementText = (
-            "Thanks to the 3D Slicer and SlicerMorph communities, and to the Trimesh authors."
+            "Developed by Juan Antonio De Rus Arance at the Escola Tècnica Superior "
+            "d'Enginyeria (ETSE-UV), Universitat de València, in the context of the "
+            "Signal Processing & Acoustic Technology (SPAT) research group. "
+            "Thanks to the 3D Slicer, SlicerMorph, VTK, NumPy, SciPy, Trimesh, and related "
+            "open-source communities."
         )
 
 

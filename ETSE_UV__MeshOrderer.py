@@ -5,6 +5,17 @@ import ctk
 import slicer
 from slicer.ScriptedLoadableModule import *
 from Resources.ETSE_UV__Dependencies import ensure_packages
+ensure_packages(
+    [
+        ("sklearn", "scikit-learn"),
+        ("trimesh", "trimesh"),
+    ],
+    interactive=False,
+    module_name="ETSE-UV Mesh Orderer",
+)
+
+from sklearn.manifold import TSNE
+import trimesh
 
 # ------------------------------------------------------------
 # Module (metadata)
@@ -15,13 +26,28 @@ class ETSE_UV__MeshOrderer(ScriptedLoadableModule):
         parent.title = "ETSE-UV Mesh Orderer"
         parent.categories = ["ETSE_UV"]
         parent.contributors = ["ETSE-UV"]
-        parent.helpText = (
-            "Order mesh points using a 1D embedding and create: "
-            "(1) a polyline path that connects points in the new order, and "
-            "(2) an optional copy of the model with points renumbered and cell connectivity remapped. "
-            "Methods: t-SNE, PCA, or Trimesh TSP (nearest-neighbor traversal)."
+        parent.helpText = """
+        <p>Order, reorder, randomize, or decimate mesh point indices while preserving valid
+        mesh connectivity.</p>
+
+        <p><b>Main tools:</b></p>
+        <ul>
+          <li>ORDER: compute a vertex ordering using t-SNE, PCA, or Trimesh TSP.</li>
+          <li>DISORDER: randomly shuffle vertex IDs and remap connectivity.</li>
+          <li>DECIMATE: reduce a mesh to a target number of points.</li>
+          <li>Template decimation: apply the same kept vertex IDs to registered meshes.</li>
+        </ul>
+
+        <p>Outputs can include a polyline path following the order and/or a new model with
+        renumbered points and remapped cells.</p>
+        """
+        parent.acknowledgementText = (
+            "Developed by Juan Antonio De Rus Arance at the Escola Tècnica Superior "
+            "d'Enginyeria (ETSE-UV), Universitat de València, in the context of the "
+            "Signal Processing & Acoustic Technology (SPAT) research group. "
+            "Thanks to the 3D Slicer, SlicerMorph, VTK, NumPy, SciPy, Trimesh, and related "
+            "open-source communities."
         )
-        parent.acknowledgementText = "Developed by J.A. De Rus at ETSE-UV"
 
 # ------------------------------------------------------------
 # Widget (UI)
@@ -551,8 +577,7 @@ class ETSE_UV__MeshOrdererWidget(ScriptedLoadableModuleWidget):
             targetN = int(self.decTargetPointsSpin.value)
 
             template = self.logic.build_decimation_template_from_reference(modelNode, targetN)
-            self.logic.set_loaded_decimation_template(template)  # lo añadimos abajo en Logic
-
+            self.logic.set_loaded_decimation_template(template)  
             slicer.util.infoDisplay(
                 f"Decimation template built from: {modelNode.GetName()}\n"
                 f"- Output points: {int(template['n_points'])}\n"
@@ -631,13 +656,6 @@ class ETSE_UV__MeshOrdererLogic(ScriptedLoadableModuleLogic):
         n = X.shape[0]
 
         if method == "t-SNE":
-            ensure_packages(
-                [("sklearn", "scikit-learn")],
-                interactive=True,
-                module_name="ETSE-UV Mesh Orderer",
-            )
-
-            from sklearn.manifold import TSNE
             params = tsne_params or {}
             tsne = TSNE(
                 n_components=1,
@@ -658,13 +676,6 @@ class ETSE_UV__MeshOrdererLogic(ScriptedLoadableModuleLogic):
             order = np.argsort(y).astype(int)
 
         elif method.startswith("Trimesh TSP"):
-            ensure_packages(
-                [("trimesh", "trimesh")],
-                interactive=True,
-                module_name="ETSE-UV Mesh Orderer",
-            )
-
-            import trimesh
             if n == 0:
                 raise RuntimeError("No points for TSP.")
             s = max(0, min(int(tsp_start), n - 1))
