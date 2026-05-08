@@ -6,6 +6,12 @@ The tools are associated with the work:
 
 **Geometry Processing Tools for Parametric Representation of Ear Anatomy**
 
+## Related standalone tools
+
+The standalone OSC HRTF Sniffer / Plotter has been moved to its own repository:
+
+https://github.com/ETSE-UV/OSC-HRTF-Sniffer
+
 ## Overview
 
 This repository is intended to be used as a 3D Slicer custom module folder. The modules are written in Python and are designed to run inside the 3D Slicer environment.
