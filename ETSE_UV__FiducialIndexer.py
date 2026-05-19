@@ -252,11 +252,20 @@ class ETSE_UV__FiducialIndexerWidget(ScriptedLoadableModuleWidget):
         self.batchMakeDelaunayCheck.checked = True
         bForm.addRow(self.batchMakeDelaunayCheck)
 
+        self.batchMakeFiducialsCheck = qt.QCheckBox("Save fiducials (.mrk.json from stored indices)")
+        self.batchMakeFiducialsCheck.checked = True
+        self.batchMakeFiducialsCheck.setToolTip(
+            "For each mesh, create a Markups Fiducial node at the stored vertex indices and save it as .mrk.json.\n"
+            "Labels/descriptions are copied from the Template fiducials selector above."
+        )
+        bForm.addRow(self.batchMakeFiducialsCheck)
+
         # Run
         self.batchRunBtn = qt.QPushButton("RUN batch")
         self.batchRunBtn.toolTip = (
-            "For each mesh in Input folder, extract points at stored indices and save outputs.\n"
-            "Uses the Delaunay options selected above."
+            "For each mesh in Input folder, extract points at stored indices and save selected outputs.\n"
+            "Point clouds and Delaunay surfaces use the Delaunay options selected above.\n"
+            "Fiducials are saved as .mrk.json using labels/descriptions from the template fiducials."
         )
         self.batchRunBtn.clicked.connect(self.onRunBatch)
         bForm.addRow(self.batchRunBtn)
@@ -447,8 +456,14 @@ class ETSE_UV__FiducialIndexerWidget(ScriptedLoadableModuleWidget):
 
         doPts = bool(self.batchMakePointCloudCheck.checked)
         doDel = bool(self.batchMakeDelaunayCheck.checked)
-        if not (doPts or doDel):
-            slicer.util.errorDisplay("Enable at least one output (point cloud and/or Delaunay).")
+        doFids = bool(self.batchMakeFiducialsCheck.checked)
+        if not (doPts or doDel or doFids):
+            slicer.util.errorDisplay("Enable at least one output (point cloud, Delaunay and/or fiducials).")
+            return
+
+        templateFids = self.templateFidSelector.currentNode() if doFids else None
+        if doFids and not templateFids:
+            slicer.util.errorDisplay("To save fiducials in batch, select Template fiducials first.")
             return
 
         # Use SAME options as your current Delaunay UI
@@ -462,6 +477,8 @@ class ETSE_UV__FiducialIndexerWidget(ScriptedLoadableModuleWidget):
                 outputDir=outDir,
                 makePointCloud=doPts,
                 makeDelaunay=doDel,
+                makeFiducials=doFids,
+                templateFidNode=templateFids,
                 delaunayMode=mode,
                 delaunayAlpha=alpha,
                 delaunayClean=clean
@@ -533,7 +550,7 @@ class ETSE_UV__FiducialIndexerLogic(ScriptedLoadableModuleLogic):
         self._last_indices = arr
         return arr
 
-    def apply_indices_to_fiducials(self, targetModelNode, templateFidNode):
+    def apply_indices_to_fiducials(self, targetModelNode, templateFidNode, outputName=None):
         """
         Assume SAME topology/indexing. For each stored index k, read targetModelNode.GetPolyData().GetPoint(k)
         and create a fiducial there. Label/description are copied from templateFidNode in the SAME order.
@@ -549,7 +566,7 @@ class ETSE_UV__FiducialIndexerLogic(ScriptedLoadableModuleLogic):
         countTemplate = templateFidNode.GetNumberOfControlPoints()
         countToCreate = min(len(self._last_indices), countTemplate)
 
-        outName = f"{targetModelNode.GetName()}_AppliedFiducials"
+        outName = outputName or f"{targetModelNode.GetName()}_AppliedFiducials"
         outFids = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", outName)
 
         for i in range(countToCreate):
@@ -1040,10 +1057,41 @@ class ETSE_UV__FiducialIndexerLogic(ScriptedLoadableModuleLogic):
             raise RuntimeError(f"Failed to write model via Slicer storage node: {filePath}")
 
 
+    def _save_fiducials(self, fidNode, filePath):
+        """
+        Save a vtkMRMLMarkupsFiducialNode as Slicer Markups JSON (.mrk.json).
+        The coordinate system is forced to RAS when supported, matching the model-saving behavior above.
+        """
+        if fidNode is None or fidNode.GetNumberOfControlPoints() == 0:
+            raise RuntimeError("No fiducials to save.")
+
+        if not filePath.lower().endswith(".mrk.json"):
+            raise RuntimeError("Fiducial output must use the .mrk.json extension.")
+
+        storage = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsJsonStorageNode", "__tmpSaveMarkupsStorage")
+        storage.SetFileName(filePath)
+
+        # Keep coordinates in RAS when this Slicer build supports explicit coordinate-system selection.
+        if hasattr(storage, "SetCoordinateSystemToRAS"):
+            storage.SetCoordinateSystemToRAS()
+        else:
+            try:
+                storage.SetCoordinateSystem(slicer.vtkMRMLStorageNode.CoordinateSystemRAS)
+            except Exception:
+                pass
+
+        ok = storage.WriteData(fidNode)
+        slicer.mrmlScene.RemoveNode(storage)
+
+        if not ok:
+            raise RuntimeError(f"Failed to write fiducials via Slicer storage node: {filePath}")
+
 
     def batch_apply_options_from_stored_indices(self, inputDir, outputDir,
                                                makePointCloud=True,
                                                makeDelaunay=True,
+                                               makeFiducials=False,
+                                               templateFidNode=None,
                                                delaunayMode="3D (tets -> surface)",
                                                delaunayAlpha=3.5,
                                                delaunayClean=False):
@@ -1052,6 +1100,9 @@ class ETSE_UV__FiducialIndexerLogic(ScriptedLoadableModuleLogic):
 
         if not os.path.isdir(inputDir) or not os.path.isdir(outputDir):
             raise RuntimeError("Invalid input/output folder.")
+
+        if makeFiducials and templateFidNode is None:
+            raise RuntimeError("Template fiducials are required to save .mrk.json outputs.")
 
         exts = (".vtk", ".vtp", ".ply")
         files = [f for f in os.listdir(inputDir)
@@ -1072,6 +1123,22 @@ class ETSE_UV__FiducialIndexerLogic(ScriptedLoadableModuleLogic):
                 ptsPD = self._polydata_points_from_indices(node, self._last_indices)
 
                 base = os.path.splitext(fname)[0]
+
+                # Save fiducials (.mrk.json)
+                if makeFiducials:
+                    outFids = None
+                    try:
+                        outFids = self.apply_indices_to_fiducials(
+                            node,
+                            templateFidNode,
+                            outputName=f"{base}_AppliedFiducials"
+                        )
+                        outPathFids = os.path.join(outputDir, base + ".mrk.json")
+                        self._save_fiducials(outFids, outPathFids)
+                        saved += 1
+                    finally:
+                        if outFids is not None:
+                            slicer.mrmlScene.RemoveNode(outFids)
 
                 # Save point cloud
                 if makePointCloud:
