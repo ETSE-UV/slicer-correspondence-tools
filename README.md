@@ -294,43 +294,7 @@ Resources/Icons/
 
 When adding a new module, place the main `.py` file in the repository root, next to the existing `ETSE_UV__*.py` modules.
 
-Shared helper files should be placed inside:
 
-```text
-Resources/
-```
-
-Local registration libraries or other bundled code should be kept in their existing local folders, such as:
-
-```text
-fuzzy_lib/
-```
-
-Do not commit Python cache files such as:
-
-```text
-__pycache__/
-*.pyc
-```
-
-## Recommended `.gitignore`
-
-A suitable `.gitignore` for this repository is:
-
-```gitignore
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-.vscode/
-.idea/
-
-.DS_Store
-Thumbs.db
-
-*.log
-```
 
 ## Citation
 
