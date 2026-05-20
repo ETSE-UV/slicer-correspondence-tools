@@ -461,10 +461,20 @@ class ETSE_UV__FiducialIndexerWidget(ScriptedLoadableModuleWidget):
             slicer.util.errorDisplay("Enable at least one output (point cloud, Delaunay and/or fiducials).")
             return
 
-        templateFids = self.templateFidSelector.currentNode() if doFids else None
-        if doFids and not templateFids:
-            slicer.util.errorDisplay("To save fiducials in batch, select Template fiducials first.")
-            return
+        # For batch fiducial export, use labels/descriptions from Template fiducials when provided.
+        # If the Apply-section template selector is empty, fall back to Source fiducials. This avoids
+        # forcing the user to select the same node twice when the source fiducials already contain
+        # the desired names/metadata.
+        templateFids = None
+        if doFids:
+            templateFids = self.templateFidSelector.currentNode()
+            if templateFids is None:
+                templateFids = self.sourceFidSelector.currentNode()
+            if templateFids is None:
+                slicer.util.errorDisplay(
+                    "To save fiducials in batch, select Template fiducials or Source fiducials first."
+                )
+                return
 
         # Use SAME options as your current Delaunay UI
         mode = str(self.delaunayModeCombo.currentText)
