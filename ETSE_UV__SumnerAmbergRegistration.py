@@ -13,7 +13,10 @@ import numpy as np
 from Resources.ETSE_UV__Dependencies import ensure_packages
 
 ensure_packages(
-    [("trimesh", "trimesh")],
+    [
+        ("trimesh", "trimesh"),
+        ("rtree", "rtree"),
+    ],
     interactive=False,
     module_name="ETSE-UV Sumner-Amberg Registration",
 )
