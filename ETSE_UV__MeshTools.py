@@ -174,7 +174,19 @@ class ETSE_UV__MeshToolsWidget(ScriptedLoadableModuleWidget):
         self.centerBtn.clicked.connect(self.onCenterMesh)
         cForm.addRow(self.centerBtn)
 
-        self.previewCenterBtn = qt.QPushButton("Preview computed anchor center")
+        self.previewTargetAnchorBtn = qt.QPushButton("Preview target world anchor")
+        self.previewTargetAnchorBtn.setToolTip(
+            "Create/update an independent fiducial at the desired target world/RAS coordinate. "
+            "By default this is the world origin: [0, 0, 0]."
+        )
+        self.previewTargetAnchorBtn.clicked.connect(self.onPreviewTargetAnchor)
+        cForm.addRow(self.previewTargetAnchorBtn)
+
+        self.previewCenterBtn = qt.QPushButton("Preview source anchor points + center")
+        self.previewCenterBtn.setToolTip(
+            "Create/update fiducials showing the source points used to compute the anchor, "
+            "plus the computed source anchor center and the target world anchor."
+        )
         self.previewCenterBtn.clicked.connect(self.onPreviewCenter)
         cForm.addRow(self.previewCenterBtn)
 
@@ -304,6 +316,118 @@ class ETSE_UV__MeshToolsWidget(ScriptedLoadableModuleWidget):
     def _center_mode(self):
         return str(self.centerSourceCombo.currentText)
 
+    def _remove_node_by_name(self, name):
+        """Remove an existing MRML node by exact name, if present."""
+        while True:
+            node = slicer.mrmlScene.GetFirstNodeByName(name)
+            if node is None:
+                break
+            slicer.mrmlScene.RemoveNode(node)
+
+
+    def _create_preview_fiducials(self, name, points, labels=None, color=(0.2, 0.8, 1.0), glyphScale=2.0):
+        """
+        Create a Markups Fiducial node for preview points.
+        Existing node with the same name is removed first, so preview updates cleanly.
+        """
+        self._remove_node_by_name(name)
+
+        points = np.asarray(points, dtype=float)
+        if points.ndim == 1:
+            points = points.reshape(1, 3)
+
+        if labels is None:
+            labels = [f"P{i}" for i in range(points.shape[0])]
+
+        node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", name)
+        node.CreateDefaultDisplayNodes()
+
+        for p, label in zip(points, labels):
+            try:
+                node.AddControlPoint(vtk.vtkVector3d(float(p[0]), float(p[1]), float(p[2])), str(label))
+            except Exception:
+                node.AddControlPoint([float(p[0]), float(p[1]), float(p[2])], str(label))
+
+        displayNode = node.GetDisplayNode()
+        if displayNode:
+            try:
+                displayNode.SetColor(float(color[0]), float(color[1]), float(color[2]))
+            except Exception:
+                pass
+            try:
+                displayNode.SetSelectedColor(float(color[0]), float(color[1]), float(color[2]))
+            except Exception:
+                pass
+            if hasattr(displayNode, "SetGlyphScale"):
+                displayNode.SetGlyphScale(float(glyphScale))
+            if hasattr(displayNode, "SetTextScale"):
+                displayNode.SetTextScale(2.5)
+            if hasattr(displayNode, "SetVisibility"):
+                displayNode.SetVisibility(True)
+
+        return node
+
+
+    def onPreviewTargetAnchor(self):
+        """
+        Preview the desired target anchor as an independent world/RAS fiducial.
+        By default, this is [0, 0, 0] because the target coordinate spin boxes default to zero.
+        """
+        try:
+            target = self._target_coord()
+            node = self._create_preview_fiducials(
+                name="ETSE_UV_MeshTools_TARGET_WORLD_ANCHOR",
+                points=[target],
+                labels=["TARGET_WORLD_ANCHOR"],
+                color=(0.1, 0.9, 0.1),
+                glyphScale=3.0,
+            )
+
+            slicer.util.infoDisplay(
+                f"Target world anchor preview created:\n"
+                f"Node: {node.GetName()}\n"
+                f"X={target[0]:.6f}, Y={target[1]:.6f}, Z={target[2]:.6f}"
+            )
+        except Exception as e:
+            slicer.util.errorDisplay(f"Failed to preview target anchor: {e}")
+
+
+    def _compute_anchor_preview_for_current_input(self, poly_for_indices=None):
+        """
+        Return:
+          anchor_center, source_points, source_point_labels
+
+        This is used only for preview/visualization and supports both:
+          - Stored indices
+          - Fiducials
+        """
+        mode = self._center_mode()
+        node = self.inputModelSelector.currentNode()
+        if node is None:
+            raise RuntimeError("Select an input mesh.")
+
+        if mode == "Stored indices":
+            ids = self.logic.get_indices()
+            if ids is None or len(ids) == 0:
+                raise RuntimeError("Load an indices file first.")
+
+            if poly_for_indices is None:
+                poly_for_indices = self.logic.model_polydata_in_world(node)
+
+            points, validIds = self.logic.anchor_points_from_indices(poly_for_indices, ids)
+            labels = [f"idx_{int(i)}" for i in validIds]
+            anchor = points.mean(axis=0)
+            return anchor, points, labels
+
+        fidNode = self.fidSelector.currentNode()
+        if fidNode is None:
+            raise RuntimeError("Select a fiducial node.")
+
+        points, validFidIds = self.logic.anchor_points_from_fiducials(fidNode, self.fidRangeEdit.text)
+        labels = [f"fid_{int(i) + 1}" for i in validFidIds]
+        anchor = points.mean(axis=0)
+        return anchor, points, labels
+
     # ------------------------------------------------------------
     # Actions: mirror
     # ------------------------------------------------------------
@@ -347,33 +471,52 @@ class ETSE_UV__MeshToolsWidget(ScriptedLoadableModuleWidget):
             slicer.util.errorDisplay(f"Failed to load indices: {e}")
 
     def _compute_anchor_for_current_input(self, poly_for_indices=None):
-        mode = self._center_mode()
-        node = self.inputModelSelector.currentNode()
-        if node is None:
-            raise RuntimeError("Select an input mesh.")
-
-        if mode == "Stored indices":
-            ids = self.logic.get_indices()
-            if ids is None or len(ids) == 0:
-                raise RuntimeError("Load an indices file first.")
-            if poly_for_indices is None:
-                poly_for_indices = self.logic.model_polydata_in_world(node)
-            return self.logic.anchor_center_from_indices(poly_for_indices, ids)
-
-        fidNode = self.fidSelector.currentNode()
-        if fidNode is None:
-            raise RuntimeError("Select a fiducial node.")
-        return self.logic.anchor_center_from_fiducials(fidNode, self.fidRangeEdit.text)
+        anchor, _points, _labels = self._compute_anchor_preview_for_current_input(
+            poly_for_indices=poly_for_indices
+        )
+        return anchor
 
     def onPreviewCenter(self):
         try:
-            anchor = self._compute_anchor_for_current_input()
+            anchor, sourcePoints, sourceLabels = self._compute_anchor_preview_for_current_input()
+            target = self._target_coord()
+
+            sourcePointsNode = self._create_preview_fiducials(
+                name="ETSE_UV_MeshTools_SOURCE_ANCHOR_POINTS",
+                points=sourcePoints,
+                labels=sourceLabels,
+                color=(0.1, 0.4, 1.0),
+                glyphScale=1.5,
+            )
+
+            sourceCenterNode = self._create_preview_fiducials(
+                name="ETSE_UV_MeshTools_SOURCE_ANCHOR_CENTER",
+                points=[anchor],
+                labels=["SOURCE_ANCHOR_CENTER"],
+                color=(1.0, 0.6, 0.0),
+                glyphScale=3.0,
+            )
+
+            targetNode = self._create_preview_fiducials(
+                name="ETSE_UV_MeshTools_TARGET_WORLD_ANCHOR",
+                points=[target],
+                labels=["TARGET_WORLD_ANCHOR"],
+                color=(0.1, 0.9, 0.1),
+                glyphScale=3.0,
+            )
+
             slicer.util.infoDisplay(
-                "Computed anchor center (world/RAS):\n"
-                f"X={anchor[0]:.6f}, Y={anchor[1]:.6f}, Z={anchor[2]:.6f}"
+                f"Anchor preview created.\n\n"
+                f"Source anchor points node: {sourcePointsNode.GetName()}\n"
+                f"Source anchor center node: {sourceCenterNode.GetName()}\n"
+                f"Target world anchor node: {targetNode.GetName()}\n\n"
+                f"Source anchor center:\n"
+                f"X={anchor[0]:.6f}, Y={anchor[1]:.6f}, Z={anchor[2]:.6f}\n\n"
+                f"Target world anchor:\n"
+                f"X={target[0]:.6f}, Y={target[1]:.6f}, Z={target[2]:.6f}"
             )
         except Exception as e:
-            slicer.util.errorDisplay(str(e))
+            slicer.util.errorDisplay(f"Failed to preview anchor: {e}")
 
     def onCenterMesh(self):
         node = self.inputModelSelector.currentNode()
@@ -690,7 +833,14 @@ class ETSE_UV__MeshToolsLogic(ScriptedLoadableModuleLogic):
     # ------------------------------------------------------------
     # Centering
     # ------------------------------------------------------------
-    def anchor_center_from_indices(self, polyData, indices):
+    def anchor_points_from_indices(self, polyData, indices):
+        """
+        Return the actual mesh points used for the anchor computation.
+
+        Returns:
+          points: Nx3 numpy array in world/RAS coordinates
+          valid_indices: list of valid vertex ids used
+        """
         if polyData is None or polyData.GetNumberOfPoints() == 0:
             raise ValueError("Polydata is empty.")
         if indices is None or len(indices) == 0:
@@ -706,7 +856,13 @@ class ETSE_UV__MeshToolsLogic(ScriptedLoadableModuleLogic):
         for j, vid in enumerate(valid):
             polyData.GetPoint(int(vid), p)
             pts[j, :] = p
-        return pts.mean(axis=0)
+
+        return pts, valid
+
+
+    def anchor_center_from_indices(self, polyData, indices):
+        points, _valid = self.anchor_points_from_indices(polyData, indices)
+        return points.mean(axis=0)
 
     def _parse_range_1based_keep_order(self, text):
         if not text or not str(text).strip():
@@ -724,7 +880,14 @@ class ETSE_UV__MeshToolsLogic(ScriptedLoadableModuleLogic):
                 out.append(int(chunk))
         return out
 
-    def anchor_center_from_fiducials(self, fidNode, rangeText="1-4"):
+    def anchor_points_from_fiducials(self, fidNode, rangeText="1-4"):
+        """
+        Return the actual fiducial points used for the anchor computation.
+
+        Returns:
+          points: Nx3 numpy array in world/RAS coordinates
+          valid_fiducial_ids: list of 0-based fiducial ids used
+        """
         if fidNode is None or fidNode.GetNumberOfControlPoints() == 0:
             raise ValueError("Fiducial node is empty or None.")
 
@@ -740,13 +903,20 @@ class ETSE_UV__MeshToolsLogic(ScriptedLoadableModuleLogic):
 
         pts = np.zeros((len(ids), 3), dtype=float)
         p = [0.0, 0.0, 0.0]
+
         for j, i in enumerate(ids):
             try:
                 fidNode.GetNthControlPointPositionWorld(int(i), p)
             except Exception:
                 fidNode.GetNthControlPointPosition(int(i), p)
             pts[j, :] = p
-        return pts.mean(axis=0)
+
+        return pts, ids
+
+
+    def anchor_center_from_fiducials(self, fidNode, rangeText="1-4"):
+        points, _ids = self.anchor_points_from_fiducials(fidNode, rangeText)
+        return points.mean(axis=0)
 
     def center_polydata(self, polyData, anchorPoint, targetPoint):
         if polyData is None or polyData.GetNumberOfPoints() == 0:
