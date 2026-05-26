@@ -1,0 +1,58 @@
+{
+  "version": 5,
+  "type": "ETSE_UV_measurement_config",
+  "modelName": "mean_pca_pinna",
+  "markupNodeName": "LineNodes",
+  "distanceMode": "point_to_point",
+  "pairs": [
+    {
+      "name": "D1",
+      "v0": 4212,
+      "v1": 3832,
+      "length": 17.50405959843292,
+      "description": ""
+    },
+    {
+      "name": "D2",
+      "v0": 3833,
+      "v1": 2734,
+      "length": 11.410838978410872,
+      "description": ""
+    },
+    {
+      "name": "D3",
+      "v0": 3953,
+      "v1": 4619,
+      "length": 16.610413385178006,
+      "description": ""
+    },
+    {
+      "name": "D4",
+      "v0": 2733,
+      "v1": 49,
+      "length": 16.41880895951675,
+      "description": ""
+    },
+    {
+      "name": "D5",
+      "v0": 5619,
+      "v1": 278,
+      "length": 65.02307461900902,
+      "description": ""
+    },
+    {
+      "name": "D6",
+      "v0": 1680,
+      "v1": 2396,
+      "length": 34.00386297085924,
+      "description": ""
+    },
+    {
+      "name": "D7",
+      "v0": 4137,
+      "v1": 4407,
+      "length": 6.08788137696147,
+      "description": ""
+    }
+  ]
+}
