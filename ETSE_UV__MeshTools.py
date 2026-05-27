@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import numpy as np
 import slicer
@@ -6,6 +7,18 @@ import vtk
 import qt
 import ctk
 from slicer.ScriptedLoadableModule import *
+
+# SOFA reading is optional at module-import time. The actual reader below
+# first tries sofar, then netCDF4, and raises a clear error if neither exists.
+try:
+    from Resources.ETSE_UV__Dependencies import ensure_packages
+    ensure_packages(
+        [("sofar", "sofar")],
+        interactive=False,
+        module_name="ETSE-UV Mesh Tools",
+    )
+except Exception as _sofa_dep_error:
+    print(f"[ETSE-UV Mesh Tools] Optional SOFA dependency check skipped/failed: {_sofa_dep_error}")
 
 
 # ------------------------------------------------------------
@@ -29,6 +42,7 @@ class ETSE_UV__MeshTools(ScriptedLoadableModule):
           <li>Build anatomical frames from canal and otobasion landmarks and align a target mesh to a reference PGD mesh.</li>
           <li>Preview canal/otobasion points, loop normals, anatomical up vectors, and final frame axes.</li>
           <li>Batch processing for folders of meshes.</li>
+          <li>Single and batch SOFA-based physical displacement using ReceiverPosition / ListenerPosition.</li>
         </ul>
 
         <p><b>Typical workflow:</b></p>
@@ -471,10 +485,159 @@ class ETSE_UV__MeshToolsWidget(ScriptedLoadableModuleWidget):
         bForm.addRow(self.batchRunBtn)
 
         # ------------------------------------------------------------
+        # SOFA displacement
+        # ------------------------------------------------------------
+        sofaDispBox = ctk.ctkCollapsibleButton()
+        sofaDispBox.text = "Displacement from SOFA ReceiverPosition"
+        self.layout.addWidget(sofaDispBox)
+        sdForm = qt.QFormLayout(sofaDispBox)
+
+        singleSofaLabel = qt.QLabel(
+            "<b>Single test operation</b><br>"
+            "Uses the selected <b>Input mesh</b> above and the SOFA file below. "
+            "Use this before running the batch."
+        )
+        singleSofaLabel.setWordWrap(True)
+        sdForm.addRow(singleSofaLabel)
+
+        rowSingleSofa = qt.QHBoxLayout()
+        self.sofaDispSingleSofaPathEdit = qt.QLineEdit("")
+        self.sofaDispSingleSofaPathEdit.setToolTip("Single .sofa file used with the currently selected Input mesh.")
+        self.sofaDispSingleBrowseBtn = qt.QPushButton("Browse…")
+        self.sofaDispSingleBrowseBtn.clicked.connect(self.onBrowseSofaDisplaceSingleSofa)
+        rowSingleSofa.addWidget(self.sofaDispSingleSofaPathEdit)
+        rowSingleSofa.addWidget(self.sofaDispSingleBrowseBtn)
+        wSingleSofa = qt.QWidget()
+        wSingleSofa.setLayout(rowSingleSofa)
+        sdForm.addRow("Single SOFA file:", wSingleSofa)
+
+        singleBtnRow = qt.QHBoxLayout()
+        self.sofaDispPreviewSingleBtn = qt.QPushButton("Preview selected scan + SOFA")
+        self.sofaDispPreviewSingleBtn.setToolTip(
+            "Create preview nodes only: displaced mesh, listener/receiver points, source anchor points, "
+            "SOFA vectors, and anatomical/SOFA frames when alignment is enabled."
+        )
+        self.sofaDispPreviewSingleBtn.clicked.connect(self.onPreviewSofaDisplacementSingle)
+        self.sofaDispCreateSingleBtn = qt.QPushButton("Create SOFA-displaced mesh")
+        self.sofaDispCreateSingleBtn.setToolTip(
+            "Create a real output model node from the selected Input mesh and the selected single SOFA file."
+        )
+        self.sofaDispCreateSingleBtn.clicked.connect(self.onCreateSofaDisplacementSingle)
+        singleBtnRow.addWidget(self.sofaDispPreviewSingleBtn)
+        singleBtnRow.addWidget(self.sofaDispCreateSingleBtn)
+        singleBtnWidget = qt.QWidget()
+        singleBtnWidget.setLayout(singleBtnRow)
+        sdForm.addRow(singleBtnWidget)
+
+        batchSofaLabel = qt.QLabel("<b>Batch operation</b>")
+        batchSofaLabel.setWordWrap(True)
+        sdForm.addRow(batchSofaLabel)
+
+        rowSofaMeshIn = qt.QHBoxLayout()
+        self.sofaDispInputDirEdit = qt.QLineEdit("")
+        self.sofaDispInputDirEdit.setToolTip("Folder containing the ear meshes, e.g. MRT05.vtk, MRT06.vtk...")
+        self.sofaDispInputBrowseBtn = qt.QPushButton("Browse…")
+        self.sofaDispInputBrowseBtn.clicked.connect(self.onBrowseSofaDisplaceInput)
+        rowSofaMeshIn.addWidget(self.sofaDispInputDirEdit)
+        rowSofaMeshIn.addWidget(self.sofaDispInputBrowseBtn)
+        wSofaMeshIn = qt.QWidget()
+        wSofaMeshIn.setLayout(rowSofaMeshIn)
+        sdForm.addRow("Input meshes folder:", wSofaMeshIn)
+
+        rowSofaDir = qt.QHBoxLayout()
+        self.sofaDispSofaDirEdit = qt.QLineEdit("")
+        self.sofaDispSofaDirEdit.setToolTip("Folder containing matching .sofa files. The tool first looks for <meshBase>.sofa.")
+        self.sofaDispSofaBrowseBtn = qt.QPushButton("Browse…")
+        self.sofaDispSofaBrowseBtn.clicked.connect(self.onBrowseSofaDisplaceSofa)
+        rowSofaDir.addWidget(self.sofaDispSofaDirEdit)
+        rowSofaDir.addWidget(self.sofaDispSofaBrowseBtn)
+        wSofaDir = qt.QWidget()
+        wSofaDir.setLayout(rowSofaDir)
+        sdForm.addRow("SOFA folder:", wSofaDir)
+
+        rowSofaOut = qt.QHBoxLayout()
+        self.sofaDispOutputDirEdit = qt.QLineEdit("")
+        self.sofaDispOutputBrowseBtn = qt.QPushButton("Browse…")
+        self.sofaDispOutputBrowseBtn.clicked.connect(self.onBrowseSofaDisplaceOutput)
+        rowSofaOut.addWidget(self.sofaDispOutputDirEdit)
+        rowSofaOut.addWidget(self.sofaDispOutputBrowseBtn)
+        wSofaOut = qt.QWidget()
+        wSofaOut.setLayout(rowSofaOut)
+        sdForm.addRow("Output folder:", wSofaOut)
+
+        sofaOptsRow = qt.QWidget()
+        sofaOptsLayout = qt.QHBoxLayout(sofaOptsRow)
+        sofaOptsLayout.setContentsMargins(0, 0, 0, 0)
+        self.sofaDispEarCombo = qt.QComboBox()
+        self.sofaDispEarCombo.addItems(["left", "right"])
+        self.sofaDispEarCombo.setCurrentText("left")
+        self.sofaDispOutputExtCombo = qt.QComboBox()
+        self.sofaDispOutputExtCombo.addItems([".vtk", ".vtp", ".ply"])
+        self.sofaDispOutputExtCombo.setCurrentText(".vtk")
+        sofaOptsLayout.addWidget(qt.QLabel("Ear"))
+        sofaOptsLayout.addWidget(self.sofaDispEarCombo)
+        sofaOptsLayout.addSpacing(12)
+        sofaOptsLayout.addWidget(qt.QLabel("Output ext"))
+        sofaOptsLayout.addWidget(self.sofaDispOutputExtCombo)
+        sofaOptsLayout.addStretch(1)
+        sdForm.addRow("Ear / batch output:", sofaOptsRow)
+
+        self.sofaDispNameFilterEdit = qt.QLineEdit("")
+        self.sofaDispNameFilterEdit.setToolTip(
+            "Optional substring or regular expression to filter mesh filenames. "
+            "Useful if left and right scans are in the same folder. Leave empty to process all meshes."
+        )
+        sdForm.addRow("Filename filter:", self.sofaDispNameFilterEdit)
+
+        self.sofaDispScaleSpin = qt.QDoubleSpinBox()
+        self.sofaDispScaleSpin.setRange(1e-9, 1e12)
+        self.sofaDispScaleSpin.setDecimals(6)
+        self.sofaDispScaleSpin.setSingleStep(100.0)
+        self.sofaDispScaleSpin.setValue(1000.0)
+        self.sofaDispScaleSpin.setToolTip(
+            "Scale applied to SOFA spatial positions before using them in Slicer/model units. "
+            "Default 1000 converts metres to millimetres."
+        )
+        sdForm.addRow("SOFA position scale:", self.sofaDispScaleSpin)
+
+        self.sofaDispCenterFirstCheck = qt.QCheckBox("First center canal anchor to ListenerPosition + ReceiverPosition")
+        self.sofaDispCenterFirstCheck.checked = True
+        self.sofaDispCenterFirstCheck.setToolTip(
+            "If enabled, the loaded centering indices and stored-index anchor range are used. "
+            "The selected anchor, normally the canal points, is moved to ListenerPosition + ReceiverPosition. "
+            "If disabled, the whole mesh is simply translated by ListenerPosition + ReceiverPosition."
+        )
+        sdForm.addRow(self.sofaDispCenterFirstCheck)
+
+        self.sofaDispAlignToSofaCheck = qt.QCheckBox("Then align anatomical frame to SOFA frame")
+        self.sofaDispAlignToSofaCheck.checked = True
+        self.sofaDispAlignToSofaCheck.setToolTip(
+            "Uses the alignment indices/canal/otobasion settings above. "
+            "The anatomical UP is aligned to SOFA ListenerUp and the anatomical normal is aligned to the receiver displacement vector."
+        )
+        sdForm.addRow(self.sofaDispAlignToSofaCheck)
+
+        self.sofaDispFlipOutwardCheck = qt.QCheckBox("Flip SOFA outward direction for alignment")
+        self.sofaDispFlipOutwardCheck.checked = True
+        self.sofaDispFlipOutwardCheck.setToolTip(
+            "If the ear faces inward after alignment, enable this and run again. "
+            "Default assumes left receiver position points toward the natural outward direction."
+        )
+        sdForm.addRow(self.sofaDispFlipOutwardCheck)
+
+        self.sofaDispRunBtn = qt.QPushButton("RUN SOFA displacement batch")
+        self.sofaDispRunBtn.setToolTip(
+            "For each mesh, find the matching SOFA file, read ReceiverPosition/ListenerPosition/ListenerUp, "
+            "move the selected ear to its SOFA receiver position, optionally align it, and save the output."
+        )
+        self.sofaDispRunBtn.clicked.connect(self.onRunSofaDisplacementBatch)
+        sdForm.addRow(self.sofaDispRunBtn)
+
+        # ------------------------------------------------------------
         # Future placeholders
         # ------------------------------------------------------------
         futureBox = ctk.ctkCollapsibleButton()
-        futureBox.text = "Future physical scale / displacement placeholders"
+        futureBox.text = "Future physical scale placeholder"
         self.layout.addWidget(futureBox)
         fForm = qt.QFormLayout(futureBox)
 
@@ -482,11 +645,6 @@ class ETSE_UV__MeshToolsWidget(ScriptedLoadableModuleWidget):
         self.placeholderScalingBtn.enabled = False
         self.placeholderScalingBtn.setToolTip("Placeholder only. Later: compute physical scale from tabular/anthropometric measurements.")
         fForm.addRow(self.placeholderScalingBtn)
-
-        self.placeholderDisplaceBtn = qt.QPushButton("TODO: Displacement from CSV / SOFA / metadata")
-        self.placeholderDisplaceBtn.enabled = False
-        self.placeholderDisplaceBtn.setToolTip("Placeholder only. Later: restore physical translation using available metadata.")
-        fForm.addRow(self.placeholderDisplaceBtn)
 
         self.layout.addStretch(1)
         self._updateStoredIndicesLabel()
@@ -1052,6 +1210,319 @@ class ETSE_UV__MeshToolsWidget(ScriptedLoadableModuleWidget):
             )
         except Exception as e:
             slicer.util.errorDisplay(f"Failed to align orientation: {e}")
+
+    # ------------------------------------------------------------
+    # SOFA displacement actions
+    # ------------------------------------------------------------
+    def onBrowseSofaDisplaceSingleSofa(self):
+        path = qt.QFileDialog.getOpenFileName(
+            self.parent,
+            "Select single SOFA file",
+            "",
+            "SOFA files (*.sofa);;All files (*)",
+        )
+        if path:
+            self.sofaDispSingleSofaPathEdit.setText(path)
+
+    def _sofa_single_common_result(self):
+        node = self.inputModelSelector.currentNode()
+        if node is None:
+            raise RuntimeError("Select an Input mesh first.")
+
+        sofaPath = self.sofaDispSingleSofaPathEdit.text.strip()
+        if not sofaPath or not os.path.isfile(sofaPath):
+            raise RuntimeError("Select a valid single SOFA file.")
+
+        centerFirst = bool(self.sofaDispCenterFirstCheck.checked)
+        if centerFirst:
+            ids = self.logic.get_indices()
+            if ids is None or len(ids) == 0:
+                raise RuntimeError(
+                    "Single SOFA displacement with canal centering requires loaded centering indices. "
+                    "Load them in the Center section and keep the stored-index anchor range as 1-4 for canal points."
+                )
+
+        alignToSofa = bool(self.sofaDispAlignToSofaCheck.checked)
+        if alignToSofa:
+            alignIds = self.logic.get_alignment_indices()
+            if alignIds is None or len(alignIds) == 0:
+                raise RuntimeError(
+                    "Single SOFA frame alignment requires loaded alignment indices. "
+                    "Load them in the Align section, usually with loaded-index labels 1-4,246-261."
+                )
+
+        poly = self.logic.model_polydata_in_world(node)
+        outPD, info = self.logic.displace_polydata_from_sofa(
+            polyData=poly,
+            sofaPath=sofaPath,
+            earSide=str(self.sofaDispEarCombo.currentText),
+            sofaPositionScale=float(self.sofaDispScaleSpin.value),
+            centerBeforeDisplace=centerFirst,
+            indices=self.logic.get_indices(),
+            centerIndexRange=self.centerStoredIndexRangeEdit.text,
+            alignToSofaFrame=alignToSofa,
+            alignIndices=self.logic.get_alignment_indices(),
+            alignLoadedIndexLabels=self.loadedIndexLabelsEdit.text,
+            alignCanalLabels=self.alignCanalLabelsEdit.text,
+            alignOtobasionLabels=self.alignOtobasionLabelsEdit.text,
+            alignUpPairsText=self.alignUpPairsEdit.text,
+            alignOtobasionWeight=float(self.otobasionNormalWeightSpin.value),
+            alignCanalWeight=float(self.canalNormalWeightSpin.value),
+            flipSofaOutwardDirection=bool(self.sofaDispFlipOutwardCheck.checked),
+        )
+        return node, sofaPath, outPD, info
+
+    def _remove_sofa_single_preview_nodes(self):
+        names = [
+            "ETSE_UV_MeshTools_SOFA_SINGLE_PREVIEW_MESH",
+            "ETSE_UV_MeshTools_SOFA_LISTENER",
+            "ETSE_UV_MeshTools_SOFA_RECEIVERS",
+            "ETSE_UV_MeshTools_SOFA_SELECTED_TARGET",
+            "ETSE_UV_MeshTools_SOFA_SOURCE_ANCHOR_POINTS",
+            "ETSE_UV_MeshTools_SOFA_SOURCE_ANCHOR_CENTER",
+            "ETSE_UV_MeshTools_SOFA_LISTENER_UP",
+            "ETSE_UV_MeshTools_SOFA_RECEIVER_DIRECTION",
+            "ETSE_UV_MeshTools_SOFA_FRAME_X",
+            "ETSE_UV_MeshTools_SOFA_FRAME_Y",
+            "ETSE_UV_MeshTools_SOFA_FRAME_Z",
+        ]
+        framePrefixes = ["SOFA_PREALIGN_TARGET", "SOFA_FINAL_TARGET"]
+        suffixes = [
+            "CANAL_POINTS", "OTOBASION_POINTS", "FRAME_ORIGIN",
+            "UP_VECTOR", "COMBINED_NORMAL", "CANAL_NORMAL", "OTOBASION_NORMAL",
+            "FRAME_X", "FRAME_Y", "FRAME_Z",
+        ]
+        for prefix in framePrefixes:
+            for suffix in suffixes:
+                names.append(f"ETSE_UV_MeshTools_{prefix}_{suffix}")
+        for name in names:
+            self._remove_node_by_name(name)
+
+    def _preview_sofa_single_result(self, outPD, info):
+        self._remove_sofa_single_preview_nodes()
+
+        previewNode = self.logic.add_model_from_polydata(outPD, "ETSE_UV_MeshTools_SOFA_SINGLE_PREVIEW_MESH")
+        dn = previewNode.GetDisplayNode()
+        if dn:
+            dn.SetOpacity(0.45)
+            dn.SetColor(0.8, 0.8, 1.0)
+            dn.SetBackfaceCulling(False)
+
+        listener = np.asarray(info["listener_position"], dtype=float).reshape(3)
+        receivers = np.asarray(info["receiver_positions"], dtype=float)
+        receiverTargets = listener.reshape(1, 3) + receivers
+        selectedTarget = np.asarray(info["target_ear_anchor"], dtype=float).reshape(3)
+        selectedReceiver = np.asarray(info["receiver_position"], dtype=float).reshape(3)
+        scale = float(self.alignVectorScaleSpin.value)
+
+        self._create_preview_fiducials(
+            "ETSE_UV_MeshTools_SOFA_LISTENER",
+            [listener],
+            labels=["ListenerPosition"],
+            color=(1.0, 1.0, 0.0),
+            glyphScale=3.0,
+        )
+        receiverLabels = ["Receiver_0_left", "Receiver_1_right"][:receiverTargets.shape[0]]
+        if receiverTargets.shape[0] > len(receiverLabels):
+            receiverLabels += [f"Receiver_{i}" for i in range(len(receiverLabels), receiverTargets.shape[0])]
+        self._create_preview_fiducials(
+            "ETSE_UV_MeshTools_SOFA_RECEIVERS",
+            receiverTargets,
+            labels=receiverLabels,
+            color=(0.0, 0.8, 1.0),
+            glyphScale=2.5,
+        )
+        self._create_preview_fiducials(
+            "ETSE_UV_MeshTools_SOFA_SELECTED_TARGET",
+            [selectedTarget],
+            labels=[f"Selected_{info['ear_side']}_target"],
+            color=(1.0, 0.2, 0.2),
+            glyphScale=3.5,
+        )
+
+        if info.get("anchor_points") is not None:
+            anchorPoints = np.asarray(info["anchor_points"], dtype=float)
+            anchorLabels = [f"anchor_v{int(v)}" for v in info.get("anchor_valid_ids", [])]
+            self._create_preview_fiducials(
+                "ETSE_UV_MeshTools_SOFA_SOURCE_ANCHOR_POINTS",
+                anchorPoints,
+                labels=anchorLabels if anchorLabels else None,
+                color=(0.2, 0.4, 1.0),
+                glyphScale=1.8,
+            )
+            self._create_preview_fiducials(
+                "ETSE_UV_MeshTools_SOFA_SOURCE_ANCHOR_CENTER",
+                [info["anchor"]],
+                labels=["Original_anchor_center"],
+                color=(1.0, 0.6, 0.0),
+                glyphScale=3.0,
+            )
+
+        self._create_preview_vector(
+            "ETSE_UV_MeshTools_SOFA_LISTENER_UP",
+            listener,
+            info.get("listener_up", [0.0, 0.0, 1.0]),
+            scale=scale,
+            color=(0.0, 1.0, 0.0),
+            lineWidth=5,
+        )
+        self._create_preview_vector(
+            "ETSE_UV_MeshTools_SOFA_RECEIVER_DIRECTION",
+            listener,
+            selectedReceiver,
+            scale=scale,
+            color=(1.0, 0.0, 1.0),
+            lineWidth=5,
+        )
+
+        sofaFrame = info.get("sofa_frame")
+        if sofaFrame is not None:
+            origin = sofaFrame["origin"]
+            self._create_preview_vector("ETSE_UV_MeshTools_SOFA_FRAME_X", origin, sofaFrame["x"], scale=scale * 0.7, color=(1.0, 0.0, 0.0), lineWidth=3)
+            self._create_preview_vector("ETSE_UV_MeshTools_SOFA_FRAME_Y", origin, sofaFrame["y"], scale=scale * 0.7, color=(0.0, 1.0, 0.0), lineWidth=3)
+            self._create_preview_vector("ETSE_UV_MeshTools_SOFA_FRAME_Z", origin, sofaFrame["z"], scale=scale * 0.7, color=(0.0, 0.0, 1.0), lineWidth=3)
+
+        if info.get("pre_rotation_frame") is not None:
+            self._preview_frame(
+                "SOFA_PREALIGN_TARGET",
+                info["pre_rotation_frame"],
+                pointColor=(1.0, 0.4, 0.1),
+                vectorScale=scale,
+            )
+        if info.get("final_frame") is not None:
+            self._preview_frame(
+                "SOFA_FINAL_TARGET",
+                info["final_frame"],
+                pointColor=(0.2, 1.0, 0.2),
+                vectorScale=scale,
+            )
+
+        return previewNode
+
+    def onPreviewSofaDisplacementSingle(self):
+        try:
+            _node, sofaPath, outPD, info = self._sofa_single_common_result()
+            previewNode = self._preview_sofa_single_result(outPD, info)
+            msg = (
+                f"SOFA single preview created.\n\n"
+                f"Preview mesh: {previewNode.GetName()}\n"
+                f"SOFA: {os.path.basename(sofaPath)}\n"
+                f"Ear: {info['ear_side']}\n"
+                f"Target: [{info['target_ear_anchor'][0]:.6f}, {info['target_ear_anchor'][1]:.6f}, {info['target_ear_anchor'][2]:.6f}]\n"
+                f"Translation: [{info['translation'][0]:.6f}, {info['translation'][1]:.6f}, {info['translation'][2]:.6f}]"
+            )
+            if info.get("rotation_angle_degrees") is not None:
+                msg += f"\nSOFA-frame rotation: {info['rotation_angle_degrees']:.3f} degrees"
+            slicer.util.infoDisplay(msg, windowTitle="SOFA single preview")
+        except Exception as e:
+            slicer.util.errorDisplay(f"SOFA single preview failed: {e}")
+
+    def onCreateSofaDisplacementSingle(self):
+        try:
+            node, sofaPath, outPD, info = self._sofa_single_common_result()
+            outName = self.outputNameEdit.text.strip()
+            if not outName or outName == "processed_mesh":
+                suffix = f"_sofa_{info['ear_side']}"
+                if bool(self.sofaDispCenterFirstCheck.checked):
+                    suffix += "_centered"
+                if bool(self.sofaDispAlignToSofaCheck.checked):
+                    suffix += "_aligned"
+                outName = node.GetName() + suffix
+            outNode = self.logic.add_model_from_polydata(outPD, outName)
+            msg = (
+                f"Created SOFA-displaced mesh: {outNode.GetName()}\n"
+                f"SOFA: {os.path.basename(sofaPath)}\n"
+                f"Ear: {info['ear_side']}\n"
+                f"Target: [{info['target_ear_anchor'][0]:.6f}, {info['target_ear_anchor'][1]:.6f}, {info['target_ear_anchor'][2]:.6f}]\n"
+                f"Translation: [{info['translation'][0]:.6f}, {info['translation'][1]:.6f}, {info['translation'][2]:.6f}]"
+            )
+            if info.get("rotation_angle_degrees") is not None:
+                msg += f"\nSOFA-frame rotation: {info['rotation_angle_degrees']:.3f} degrees"
+            slicer.util.infoDisplay(msg, windowTitle="SOFA single displacement")
+        except Exception as e:
+            slicer.util.errorDisplay(f"SOFA single displacement failed: {e}")
+
+    def onBrowseSofaDisplaceInput(self):
+        d = qt.QFileDialog.getExistingDirectory(self.parent, "Select folder with ear meshes")
+        if d:
+            self.sofaDispInputDirEdit.setText(d)
+
+    def onBrowseSofaDisplaceSofa(self):
+        d = qt.QFileDialog.getExistingDirectory(self.parent, "Select folder with matching SOFA files")
+        if d:
+            self.sofaDispSofaDirEdit.setText(d)
+
+    def onBrowseSofaDisplaceOutput(self):
+        d = qt.QFileDialog.getExistingDirectory(self.parent, "Select output folder for SOFA-displaced meshes")
+        if d:
+            self.sofaDispOutputDirEdit.setText(d)
+
+    def onRunSofaDisplacementBatch(self):
+        inDir = self.sofaDispInputDirEdit.text.strip()
+        sofaDir = self.sofaDispSofaDirEdit.text.strip()
+        outDir = self.sofaDispOutputDirEdit.text.strip()
+
+        if not inDir or not os.path.isdir(inDir):
+            slicer.util.errorDisplay("Pick a valid input mesh folder.")
+            return
+        if not sofaDir or not os.path.isdir(sofaDir):
+            slicer.util.errorDisplay("Pick a valid SOFA folder.")
+            return
+        if not outDir:
+            slicer.util.errorDisplay("Pick an output folder.")
+            return
+        if not os.path.isdir(outDir):
+            os.makedirs(outDir, exist_ok=True)
+
+        centerFirst = bool(self.sofaDispCenterFirstCheck.checked)
+        if centerFirst:
+            ids = self.logic.get_indices()
+            if ids is None or len(ids) == 0:
+                slicer.util.errorDisplay(
+                    "SOFA displacement with canal centering requires a loaded centering indices file.\n"
+                    "Load the same .npy/.npz used by the normal centering section, and keep the anchor range as 1-4 for canal points."
+                )
+                return
+
+        alignToSofa = bool(self.sofaDispAlignToSofaCheck.checked)
+        if alignToSofa:
+            alignIds = self.logic.get_alignment_indices()
+            if alignIds is None or len(alignIds) == 0:
+                slicer.util.errorDisplay(
+                    "SOFA frame alignment requires loaded alignment indices.\n"
+                    "Use the alignment indices section and labels such as 1-4,246-261."
+                )
+                return
+
+        try:
+            processed, saved, skipped = self.logic.batch_displace_from_sofa_folder(
+                inputDir=inDir,
+                sofaDir=sofaDir,
+                outputDir=outDir,
+                outputExt=str(self.sofaDispOutputExtCombo.currentText),
+                earSide=str(self.sofaDispEarCombo.currentText),
+                filenameFilter=self.sofaDispNameFilterEdit.text.strip(),
+                sofaPositionScale=float(self.sofaDispScaleSpin.value),
+                centerBeforeDisplace=centerFirst,
+                indices=self.logic.get_indices(),
+                centerIndexRange=self.centerStoredIndexRangeEdit.text,
+                alignToSofaFrame=alignToSofa,
+                alignIndices=self.logic.get_alignment_indices(),
+                alignLoadedIndexLabels=self.loadedIndexLabelsEdit.text,
+                alignCanalLabels=self.alignCanalLabelsEdit.text,
+                alignOtobasionLabels=self.alignOtobasionLabelsEdit.text,
+                alignUpPairsText=self.alignUpPairsEdit.text,
+                alignOtobasionWeight=float(self.otobasionNormalWeightSpin.value),
+                alignCanalWeight=float(self.canalNormalWeightSpin.value),
+                flipSofaOutwardDirection=bool(self.sofaDispFlipOutwardCheck.checked),
+            )
+            slicer.util.infoDisplay(
+                f"SOFA displacement batch done. Processed: {processed}  Saved: {saved}  Skipped: {skipped}\n"
+                f"Output: {outDir}"
+            )
+        except Exception as e:
+            slicer.util.errorDisplay(f"SOFA displacement batch failed: {e}")
+
 
     # ------------------------------------------------------------
     # Batch actions
@@ -1814,6 +2285,428 @@ class ETSE_UV__MeshToolsLogic(ScriptedLoadableModuleLogic):
             raise ValueError("No valid positions found for requested labels.")
 
         return np.vstack(pts), validLabels
+
+    # ------------------------------------------------------------
+    # SOFA spatial metadata and displacement
+    # ------------------------------------------------------------
+    def _as_vector3(self, value, name="vector"):
+        arr = np.asarray(value, dtype=float)
+        arr = np.squeeze(arr)
+        if arr.ndim == 0:
+            raise ValueError(f"{name} is scalar, expected 3 values.")
+        if arr.shape == (3,):
+            return arr.astype(float)
+        if arr.ndim == 2 and 3 in arr.shape:
+            if arr.shape[1] == 3:
+                return arr[0, :].astype(float)
+            if arr.shape[0] == 3:
+                return arr[:, 0].astype(float)
+        if arr.size >= 3:
+            return arr.reshape(-1)[:3].astype(float)
+        raise ValueError(f"Could not interpret {name} as a 3-vector. Shape: {arr.shape}")
+
+    def _as_receiver_positions(self, value):
+        arr = np.asarray(value, dtype=float)
+        arr = np.squeeze(arr)
+        if arr.ndim == 1 and arr.size == 3:
+            arr = arr.reshape(1, 3)
+        elif arr.ndim == 2:
+            if arr.shape[1] == 3:
+                pass
+            elif arr.shape[0] == 3:
+                arr = arr.T
+            else:
+                arr = arr.reshape(-1, 3)
+        else:
+            arr = arr.reshape(-1, 3)
+        if arr.shape[0] < 1 or arr.shape[1] != 3:
+            raise ValueError(f"Could not interpret ReceiverPosition. Shape after squeeze: {arr.shape}")
+        return arr.astype(float)
+
+    def read_sofa_spatial_metadata(self, sofaPath, positionScale=1000.0):
+        """
+        Read the spatial information needed for mesh displacement.
+
+        Returns positions in Slicer/model units after applying positionScale.
+        Receiver convention: receiver 0 = left, receiver 1 = right, following SOFA HRIR convention.
+        """
+        if not sofaPath or not os.path.isfile(sofaPath):
+            raise ValueError("Invalid SOFA file path.")
+        scale = float(positionScale)
+
+        # Preferred path: sofar is already used in the SOFA HRTF Plotter module.
+        try:
+            import sofar as sf
+            sofa = sf.read_sofa(sofaPath)
+            receiver = self._as_receiver_positions(getattr(sofa, "ReceiverPosition")) * scale
+            listener = self._as_vector3(getattr(sofa, "ListenerPosition", [0.0, 0.0, 0.0]), "ListenerPosition") * scale
+            up = self._as_vector3(getattr(sofa, "ListenerUp", [0.0, 0.0, 1.0]), "ListenerUp")
+            view = self._as_vector3(getattr(sofa, "ListenerView", [1.0, 0.0, 0.0]), "ListenerView")
+            shortName = str(getattr(sofa, "GLOBAL_ListenerShortName", "") or "")
+            return {
+                "receiver_positions": receiver,
+                "listener_position": listener,
+                "listener_up": up,
+                "listener_view": view,
+                "listener_short_name": shortName,
+            }
+        except Exception as sofar_error:
+            # Fallback for environments where netCDF4 is present but sofar is not.
+            try:
+                from netCDF4 import Dataset
+                with Dataset(sofaPath, "r") as ds:
+                    receiver = self._as_receiver_positions(ds.variables["ReceiverPosition"][:]) * scale
+                    listener = self._as_vector3(ds.variables.get("ListenerPosition")[:] if "ListenerPosition" in ds.variables else [0, 0, 0], "ListenerPosition") * scale
+                    up = self._as_vector3(ds.variables.get("ListenerUp")[:] if "ListenerUp" in ds.variables else [0, 0, 1], "ListenerUp")
+                    view = self._as_vector3(ds.variables.get("ListenerView")[:] if "ListenerView" in ds.variables else [1, 0, 0], "ListenerView")
+                    shortName = str(getattr(ds, "GLOBAL_ListenerShortName", "") or "")
+                return {
+                    "receiver_positions": receiver,
+                    "listener_position": listener,
+                    "listener_up": up,
+                    "listener_view": view,
+                    "listener_short_name": shortName,
+                }
+            except Exception as netcdf_error:
+                raise RuntimeError(
+                    "Could not read SOFA spatial metadata. Install/use 'sofar' or 'netCDF4' in Slicer's Python.\n"
+                    f"sofar error: {sofar_error}\n"
+                    f"netCDF4 error: {netcdf_error}"
+                )
+
+    def _find_matching_sofa(self, sofaDir, meshBase):
+        if not sofaDir or not os.path.isdir(sofaDir):
+            return None
+
+        exact = os.path.join(sofaDir, meshBase + ".sofa")
+        if os.path.isfile(exact):
+            return exact
+
+        lowBase = meshBase.lower()
+        sofas = [f for f in os.listdir(sofaDir) if f.lower().endswith(".sofa")]
+        for fname in sofas:
+            if os.path.splitext(fname)[0].lower() == lowBase:
+                return os.path.join(sofaDir, fname)
+
+        # Useful when files are named like MRT05_left.sofa or subject_MRT05.sofa.
+        for fname in sofas:
+            stem = os.path.splitext(fname)[0].lower()
+            if lowBase in stem or stem in lowBase:
+                return os.path.join(sofaDir, fname)
+
+        # Slow fallback: inspect ListenerShortName if present.
+        for fname in sofas:
+            p = os.path.join(sofaDir, fname)
+            try:
+                meta = self.read_sofa_spatial_metadata(p, positionScale=1.0)
+                if str(meta.get("listener_short_name", "")).lower() == lowBase:
+                    return p
+            except Exception:
+                continue
+        return None
+
+    def translate_polydata(self, polyData, translation):
+        if polyData is None or polyData.GetNumberOfPoints() == 0:
+            raise ValueError("Input polydata is empty.")
+        tr = np.asarray(translation, dtype=float).reshape(3)
+        t = vtk.vtkTransform()
+        t.Translate(float(tr[0]), float(tr[1]), float(tr[2]))
+        tf = vtk.vtkTransformPolyDataFilter()
+        tf.SetTransform(t)
+        tf.SetInputData(polyData)
+        tf.Update()
+        out = vtk.vtkPolyData()
+        out.DeepCopy(tf.GetOutput())
+        out.Modified()
+        return out
+
+    def frame_from_up_and_normal(self, origin, up, normal):
+        """Create a frame dictionary compatible with rotation_from_frame_to_frame."""
+        origin = np.asarray(origin, dtype=float).reshape(3)
+        y = self._normalize_vector(up, "SOFA ListenerUp")
+        z0 = self._normalize_vector(normal, "SOFA receiver direction")
+        z = z0 - np.dot(z0, y) * y
+        z = self._normalize_vector(z, "SOFA receiver direction orthogonalized to up")
+        x = self._normalize_vector(np.cross(y, z), "SOFA frame x")
+        z = self._normalize_vector(np.cross(x, y), "SOFA frame z")
+        frame = np.column_stack([x, y, z])
+        if np.linalg.det(frame) < 0:
+            x *= -1.0
+            frame = np.column_stack([x, y, z])
+        return {
+            "origin": origin,
+            "up": y,
+            "normal": z,
+            "x": x,
+            "y": y,
+            "z": z,
+            "frame": frame,
+        }
+
+    def _filename_passes_filter(self, filename, filterText):
+        txt = (filterText or "").strip()
+        if not txt:
+            return True
+        base = os.path.splitext(os.path.basename(filename))[0]
+        hay = filename + " " + base
+        try:
+            return re.search(txt, hay, flags=re.IGNORECASE) is not None
+        except Exception:
+            return txt.lower() in hay.lower()
+
+    def displace_polydata_from_sofa(self, polyData, sofaPath, earSide="left", sofaPositionScale=1000.0,
+                                    centerBeforeDisplace=True, indices=None, centerIndexRange="1-4",
+                                    alignToSofaFrame=True, alignIndices=None,
+                                    alignLoadedIndexLabels="1-4,246-261",
+                                    alignCanalLabels="1-4", alignOtobasionLabels="246-261",
+                                    alignUpPairsText="254-246,255-261,253-247",
+                                    alignOtobasionWeight=0.80, alignCanalWeight=0.20,
+                                    flipSofaOutwardDirection=False):
+        """
+        Single-mesh SOFA displacement core used by the GUI preview/create buttons.
+
+        Returns:
+          outPolyData, info
+
+        Receiver convention follows SOFA HRIR: receiver 0 = left, receiver 1 = right.
+        Spatial SOFA positions are multiplied by sofaPositionScale before use.
+        """
+        if polyData is None or polyData.GetNumberOfPoints() == 0:
+            raise RuntimeError("Input polydata is empty.")
+        ear = str(earSide).strip().lower()
+        if ear not in ("left", "right"):
+            raise RuntimeError("Ear side must be 'left' or 'right'.")
+        receiverIndex = 0 if ear == "left" else 1
+
+        if centerBeforeDisplace and (indices is None or len(indices) == 0):
+            raise RuntimeError("Center-before-displace requires centering indices.")
+        if alignToSofaFrame and (alignIndices is None or len(alignIndices) == 0):
+            raise RuntimeError("SOFA frame alignment requires alignment indices.")
+
+        meta = self.read_sofa_spatial_metadata(sofaPath, positionScale=float(sofaPositionScale))
+        receivers = np.asarray(meta["receiver_positions"], dtype=float)
+        if receiverIndex >= receivers.shape[0]:
+            raise RuntimeError(f"SOFA has {receivers.shape[0]} receiver(s), cannot use {ear} receiver index {receiverIndex}.")
+
+        listener = np.asarray(meta["listener_position"], dtype=float).reshape(3)
+        receiver = receivers[receiverIndex, :].reshape(3)
+        targetEarAnchor = listener + receiver
+
+        poly = vtk.vtkPolyData()
+        poly.DeepCopy(polyData)
+
+        anchor = None
+        anchorPoints = None
+        anchorValidIds = None
+        if centerBeforeDisplace:
+            centerIds = self.subset_indices_by_position(indices, centerIndexRange)
+            anchorPoints, anchorValidIds = self.anchor_points_from_indices(poly, centerIds)
+            anchor = anchorPoints.mean(axis=0)
+            poly, translation = self.center_polydata(poly, anchor, targetEarAnchor)
+        else:
+            translation = targetEarAnchor.copy()
+            poly = self.translate_polydata(poly, translation)
+
+        sofaNormal = np.asarray(receiver, dtype=float).reshape(3)
+        if bool(flipSofaOutwardDirection):
+            sofaNormal *= -1.0
+
+        preRotationFrame = None
+        finalFrame = None
+        rotationAngleDeg = None
+        rotationCenter = None
+
+        # Default SOFA frame preview if not doing anatomical alignment.
+        sofaFrame = self.frame_from_up_and_normal(
+            origin=targetEarAnchor,
+            up=meta.get("listener_up", [0.0, 0.0, 1.0]),
+            normal=sofaNormal,
+        )
+
+        if alignToSofaFrame:
+            preRotationFrame = self.anatomical_frame_from_stored_indices(
+                polyData=poly,
+                storedIndices=alignIndices,
+                loadedIndexLabels=alignLoadedIndexLabels,
+                canalLabels=alignCanalLabels,
+                otobasionLabels=alignOtobasionLabels,
+                upPairsText=alignUpPairsText,
+                otobasionWeight=float(alignOtobasionWeight),
+                canalWeight=float(alignCanalWeight),
+            )
+
+            rotationCenter = preRotationFrame["canal_center"]
+            sofaFrame = self.frame_from_up_and_normal(
+                origin=rotationCenter,
+                up=meta.get("listener_up", [0.0, 0.0, 1.0]),
+                normal=sofaNormal,
+            )
+            rotation = self.rotation_from_frame_to_frame(preRotationFrame, sofaFrame)
+            rotationAngleDeg = self.rotation_angle_degrees(rotation)
+            poly = self.rotate_polydata_about_point(poly, rotation, rotationCenter)
+
+            finalFrame = self.anatomical_frame_from_stored_indices(
+                polyData=poly,
+                storedIndices=alignIndices,
+                loadedIndexLabels=alignLoadedIndexLabels,
+                canalLabels=alignCanalLabels,
+                otobasionLabels=alignOtobasionLabels,
+                upPairsText=alignUpPairsText,
+                otobasionWeight=float(alignOtobasionWeight),
+                canalWeight=float(alignCanalWeight),
+            )
+
+        info = {
+            "metadata": meta,
+            "ear_side": ear,
+            "receiver_index": receiverIndex,
+            "receiver_positions": receivers,
+            "listener_position": listener,
+            "listener_up": np.asarray(meta.get("listener_up", [0.0, 0.0, 1.0]), dtype=float).reshape(3),
+            "listener_view": np.asarray(meta.get("listener_view", [1.0, 0.0, 0.0]), dtype=float).reshape(3),
+            "receiver_position": receiver,
+            "target_ear_anchor": targetEarAnchor,
+            "translation": np.asarray(translation, dtype=float).reshape(3),
+            "anchor": anchor,
+            "anchor_points": anchorPoints,
+            "anchor_valid_ids": anchorValidIds,
+            "sofa_frame": sofaFrame,
+            "pre_rotation_frame": preRotationFrame,
+            "final_frame": finalFrame,
+            "rotation_center": rotationCenter,
+            "rotation_angle_degrees": rotationAngleDeg,
+        }
+        return poly, info
+
+    def batch_displace_from_sofa_folder(self, inputDir, sofaDir, outputDir, outputExt=".vtk",
+                                        earSide="left", filenameFilter="", sofaPositionScale=1000.0,
+                                        centerBeforeDisplace=True, indices=None, centerIndexRange="1-4",
+                                        alignToSofaFrame=True, alignIndices=None,
+                                        alignLoadedIndexLabels="1-4,246-261",
+                                        alignCanalLabels="1-4", alignOtobasionLabels="246-261",
+                                        alignUpPairsText="254-246,255-261,253-247",
+                                        alignOtobasionWeight=0.80, alignCanalWeight=0.20,
+                                        flipSofaOutwardDirection=False):
+        if not os.path.isdir(inputDir):
+            raise RuntimeError("Invalid input mesh folder.")
+        if not os.path.isdir(sofaDir):
+            raise RuntimeError("Invalid SOFA folder.")
+        if not os.path.isdir(outputDir):
+            raise RuntimeError("Invalid output folder.")
+
+        outputExt = str(outputExt).lower()
+        if outputExt not in (".vtk", ".vtp", ".ply"):
+            raise RuntimeError("Output extension must be .vtk, .vtp, or .ply.")
+
+        ear = str(earSide).strip().lower()
+        if ear not in ("left", "right"):
+            raise RuntimeError("Ear side must be 'left' or 'right'.")
+        receiverIndex = 0 if ear == "left" else 1
+
+        if centerBeforeDisplace and (indices is None or len(indices) == 0):
+            raise RuntimeError("Center-before-displace requires centering indices.")
+        if alignToSofaFrame and (alignIndices is None or len(alignIndices) == 0):
+            raise RuntimeError("SOFA frame alignment requires alignment indices.")
+
+        exts = (".vtk", ".vtp", ".ply")
+        files = [f for f in os.listdir(inputDir)
+                 if os.path.isfile(os.path.join(inputDir, f))
+                 and os.path.splitext(f)[1].lower() in exts
+                 and self._filename_passes_filter(f, filenameFilter)]
+        files.sort()
+
+        processed = 0
+        saved = 0
+        skipped = 0
+
+        for fname in files:
+            processed += 1
+            inPath = os.path.join(inputDir, fname)
+            base = os.path.splitext(fname)[0]
+            sofaPath = self._find_matching_sofa(sofaDir, base)
+            if sofaPath is None:
+                print(f"[ETSE-UV Mesh Tools][SOFA displacement] Skipped {fname}: no matching SOFA file.")
+                skipped += 1
+                continue
+
+            ok, node = slicer.util.loadModel(inPath, returnNode=True)
+            if not ok or node is None:
+                print(f"[ETSE-UV Mesh Tools][SOFA displacement] Skipped {fname}: could not load mesh.")
+                skipped += 1
+                continue
+
+            try:
+                meta = self.read_sofa_spatial_metadata(sofaPath, positionScale=float(sofaPositionScale))
+                receivers = np.asarray(meta["receiver_positions"], dtype=float)
+                if receiverIndex >= receivers.shape[0]:
+                    raise RuntimeError(f"SOFA has {receivers.shape[0]} receiver(s), cannot use {ear} receiver index {receiverIndex}.")
+
+                listener = np.asarray(meta["listener_position"], dtype=float).reshape(3)
+                receiver = receivers[receiverIndex, :].reshape(3)
+                targetEarAnchor = listener + receiver
+
+                poly = self.model_polydata_in_world(node)
+
+                if centerBeforeDisplace:
+                    centerIds = self.subset_indices_by_position(indices, centerIndexRange)
+                    anchor = self.anchor_center_from_indices(poly, centerIds)
+                    poly, translation = self.center_polydata(poly, anchor, targetEarAnchor)
+                else:
+                    translation = targetEarAnchor
+                    poly = self.translate_polydata(poly, translation)
+
+                rotationAngleDeg = None
+                if alignToSofaFrame:
+                    targetFrame = self.anatomical_frame_from_stored_indices(
+                        polyData=poly,
+                        storedIndices=alignIndices,
+                        loadedIndexLabels=alignLoadedIndexLabels,
+                        canalLabels=alignCanalLabels,
+                        otobasionLabels=alignOtobasionLabels,
+                        upPairsText=alignUpPairsText,
+                        otobasionWeight=float(alignOtobasionWeight),
+                        canalWeight=float(alignCanalWeight),
+                    )
+
+                    sofaNormal = np.asarray(receiver, dtype=float).reshape(3)
+                    if bool(flipSofaOutwardDirection):
+                        sofaNormal *= -1.0
+                    sofaFrame = self.frame_from_up_and_normal(
+                        origin=targetFrame["canal_center"],
+                        up=meta.get("listener_up", [0.0, 0.0, 1.0]),
+                        normal=sofaNormal,
+                    )
+                    rotation = self.rotation_from_frame_to_frame(targetFrame, sofaFrame)
+                    rotationAngleDeg = self.rotation_angle_degrees(rotation)
+                    poly = self.rotate_polydata_about_point(poly, rotation, targetFrame["canal_center"])
+
+                suffix = f"_sofa_{ear}"
+                if centerBeforeDisplace:
+                    suffix += "_centered"
+                if alignToSofaFrame:
+                    suffix += "_aligned"
+                outPath = os.path.join(outputDir, base + suffix + outputExt)
+                self._save_polydata(poly, outPath)
+                saved += 1
+
+                msg = (
+                    f"[ETSE-UV Mesh Tools][SOFA displacement] {fname} -> {os.path.basename(outPath)} | "
+                    f"SOFA={os.path.basename(sofaPath)} | ear={ear} | "
+                    f"target=[{targetEarAnchor[0]:.6f}, {targetEarAnchor[1]:.6f}, {targetEarAnchor[2]:.6f}] | "
+                    f"translation=[{translation[0]:.6f}, {translation[1]:.6f}, {translation[2]:.6f}]"
+                )
+                if rotationAngleDeg is not None:
+                    msg += f" | SOFA-frame rotation={rotationAngleDeg:.3f} deg"
+                print(msg)
+
+            except Exception as e:
+                print(f"[ETSE-UV Mesh Tools][SOFA displacement] Skipped {fname}: {e}")
+                skipped += 1
+            finally:
+                slicer.mrmlScene.RemoveNode(node)
+
+        return processed, saved, skipped
+
 
     # ------------------------------------------------------------
     # Batch processing
