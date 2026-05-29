@@ -625,6 +625,33 @@ class ETSE_UV__MeshToolsWidget(ScriptedLoadableModuleWidget):
         )
         sdForm.addRow(self.sofaDispFlipOutwardCheck)
 
+        self.sofaDispLandmarkSourceCombo = qt.QComboBox()
+        self.sofaDispLandmarkSourceCombo.addItems([
+            "Same loaded indices for all meshes",
+            "Matched fiducials folder (.mrk.json)",
+        ])
+        self.sofaDispLandmarkSourceCombo.setCurrentText("Same loaded indices for all meshes")
+        self.sofaDispLandmarkSourceCombo.setToolTip(
+            "Controls where the SOFA batch gets the canal/otobasion landmarks. "
+            "Use indices for registered meshes with identical topology. "
+            "Use a fiducials folder when each mesh has its own .mrk.json."
+        )
+        sdForm.addRow("SOFA batch landmark source:", self.sofaDispLandmarkSourceCombo)
+
+        rowSofaFids = qt.QHBoxLayout()
+        self.sofaDispFiducialsDirEdit = qt.QLineEdit("")
+        self.sofaDispFiducialsDirEdit.setToolTip(
+            "Folder containing matched .mrk.json files for the SOFA batch. "
+            "The tool first looks for <meshBase>.mrk.json, then common suffixes."
+        )
+        self.sofaDispFiducialsBrowseBtn = qt.QPushButton("Browse…")
+        self.sofaDispFiducialsBrowseBtn.clicked.connect(self.onBrowseSofaDisplaceFiducials)
+        rowSofaFids.addWidget(self.sofaDispFiducialsDirEdit)
+        rowSofaFids.addWidget(self.sofaDispFiducialsBrowseBtn)
+        wSofaFids = qt.QWidget()
+        wSofaFids.setLayout(rowSofaFids)
+        sdForm.addRow("SOFA fiducials folder:", wSofaFids)
+
         self.sofaDispRunBtn = qt.QPushButton("RUN SOFA displacement batch")
         self.sofaDispRunBtn.setToolTip(
             "For each mesh, find the matching SOFA file, read ReceiverPosition/ListenerPosition/ListenerUp, "
@@ -1457,6 +1484,11 @@ class ETSE_UV__MeshToolsWidget(ScriptedLoadableModuleWidget):
         if d:
             self.sofaDispOutputDirEdit.setText(d)
 
+    def onBrowseSofaDisplaceFiducials(self):
+        d = qt.QFileDialog.getExistingDirectory(self.parent, "Select folder with matched SOFA batch .mrk.json fiducials")
+        if d:
+            self.sofaDispFiducialsDirEdit.setText(d)
+
     def onRunSofaDisplacementBatch(self):
         inDir = self.sofaDispInputDirEdit.text.strip()
         sofaDir = self.sofaDispSofaDirEdit.text.strip()
@@ -1475,24 +1507,36 @@ class ETSE_UV__MeshToolsWidget(ScriptedLoadableModuleWidget):
             os.makedirs(outDir, exist_ok=True)
 
         centerFirst = bool(self.sofaDispCenterFirstCheck.checked)
-        if centerFirst:
-            ids = self.logic.get_indices()
-            if ids is None or len(ids) == 0:
-                slicer.util.errorDisplay(
-                    "SOFA displacement with canal centering requires a loaded centering indices file.\n"
-                    "Load the same .npy/.npz used by the normal centering section, and keep the anchor range as 1-4 for canal points."
-                )
-                return
-
         alignToSofa = bool(self.sofaDispAlignToSofaCheck.checked)
-        if alignToSofa:
-            alignIds = self.logic.get_alignment_indices()
-            if alignIds is None or len(alignIds) == 0:
+        landmarkSource = str(self.sofaDispLandmarkSourceCombo.currentText)
+        useFiducialsFolder = landmarkSource == "Matched fiducials folder (.mrk.json)"
+        sofaFiducialsDir = self.sofaDispFiducialsDirEdit.text.strip()
+
+        if useFiducialsFolder:
+            if not sofaFiducialsDir or not os.path.isdir(sofaFiducialsDir):
                 slicer.util.errorDisplay(
-                    "SOFA frame alignment requires loaded alignment indices.\n"
-                    "Use the alignment indices section and labels such as 1-4,246-261."
+                    "SOFA batch is set to use a matched fiducials folder, but the folder is invalid.\n"
+                    "Select the folder containing <meshBase>.mrk.json files."
                 )
                 return
+        else:
+            if centerFirst:
+                ids = self.logic.get_indices()
+                if ids is None or len(ids) == 0:
+                    slicer.util.errorDisplay(
+                        "SOFA displacement with canal centering requires a loaded centering indices file.\n"
+                        "Load the same .npy/.npz used by the normal centering section, and keep the anchor range as 1-4 for canal points."
+                    )
+                    return
+
+            if alignToSofa:
+                alignIds = self.logic.get_alignment_indices()
+                if alignIds is None or len(alignIds) == 0:
+                    slicer.util.errorDisplay(
+                        "SOFA frame alignment requires loaded alignment indices.\n"
+                        "Use the alignment indices section and labels such as 1-4,246-261."
+                    )
+                    return
 
         try:
             processed, saved, skipped = self.logic.batch_displace_from_sofa_folder(
@@ -1504,8 +1548,11 @@ class ETSE_UV__MeshToolsWidget(ScriptedLoadableModuleWidget):
                 filenameFilter=self.sofaDispNameFilterEdit.text.strip(),
                 sofaPositionScale=float(self.sofaDispScaleSpin.value),
                 centerBeforeDisplace=centerFirst,
+                landmarkSource=landmarkSource,
+                fiducialsDir=sofaFiducialsDir,
                 indices=self.logic.get_indices(),
                 centerIndexRange=self.centerStoredIndexRangeEdit.text,
+                centerFiducialRange=self.fidRangeEdit.text,
                 alignToSofaFrame=alignToSofa,
                 alignIndices=self.logic.get_alignment_indices(),
                 alignLoadedIndexLabels=self.loadedIndexLabelsEdit.text,
@@ -2286,6 +2333,38 @@ class ETSE_UV__MeshToolsLogic(ScriptedLoadableModuleLogic):
 
         return np.vstack(pts), validLabels
 
+    def anatomical_frame_from_mrk_json(self, filePath, canalLabels, otobasionLabels, upPairsText,
+                                       otobasionWeight=0.80, canalWeight=0.20):
+        """
+        Build an anatomical frame directly from a matched .mrk.json file.
+        Used by SOFA batch mode when meshes do not all share the same vertex indices.
+        """
+        canalPoints, canalLabelList = self._load_labeled_points_from_mrk_json(filePath, canalLabels)
+        otobasionPoints, otobasionLabelList = self._load_labeled_points_from_mrk_json(filePath, otobasionLabels)
+        return self._build_anatomical_frame(
+            canalPoints,
+            canalLabelList,
+            otobasionPoints,
+            otobasionLabelList,
+            upPairsText,
+            otobasionWeight,
+            canalWeight,
+        )
+
+    def translate_frame(self, frame, translation):
+        """Return a copy of an anatomical frame translated by the same vector as the mesh."""
+        if frame is None:
+            return None
+        tr = np.asarray(translation, dtype=float).reshape(3)
+        out = dict(frame)
+        for key in ("origin", "canal_center", "otobasion_center"):
+            if key in out and out[key] is not None:
+                out[key] = np.asarray(out[key], dtype=float).reshape(3) + tr
+        for key in ("canal_points", "otobasion_points"):
+            if key in out and out[key] is not None:
+                out[key] = np.asarray(out[key], dtype=float) + tr.reshape(1, 3)
+        return out
+
     # ------------------------------------------------------------
     # SOFA spatial metadata and displacement
     # ------------------------------------------------------------
@@ -2580,7 +2659,9 @@ class ETSE_UV__MeshToolsLogic(ScriptedLoadableModuleLogic):
 
     def batch_displace_from_sofa_folder(self, inputDir, sofaDir, outputDir, outputExt=".vtk",
                                         earSide="left", filenameFilter="", sofaPositionScale=1000.0,
-                                        centerBeforeDisplace=True, indices=None, centerIndexRange="1-4",
+                                        centerBeforeDisplace=True, landmarkSource="Same loaded indices for all meshes",
+                                        fiducialsDir="", indices=None, centerIndexRange="1-4",
+                                        centerFiducialRange="1-4",
                                         alignToSofaFrame=True, alignIndices=None,
                                         alignLoadedIndexLabels="1-4,246-261",
                                         alignCanalLabels="1-4", alignOtobasionLabels="246-261",
@@ -2603,10 +2684,16 @@ class ETSE_UV__MeshToolsLogic(ScriptedLoadableModuleLogic):
             raise RuntimeError("Ear side must be 'left' or 'right'.")
         receiverIndex = 0 if ear == "left" else 1
 
-        if centerBeforeDisplace and (indices is None or len(indices) == 0):
-            raise RuntimeError("Center-before-displace requires centering indices.")
-        if alignToSofaFrame and (alignIndices is None or len(alignIndices) == 0):
-            raise RuntimeError("SOFA frame alignment requires alignment indices.")
+        source = str(landmarkSource or "Same loaded indices for all meshes")
+        useFiducialsFolder = source == "Matched fiducials folder (.mrk.json)"
+        if useFiducialsFolder:
+            if not fiducialsDir or not os.path.isdir(fiducialsDir):
+                raise RuntimeError("Matched-fiducials SOFA batch requires a valid fiducials folder.")
+        else:
+            if centerBeforeDisplace and (indices is None or len(indices) == 0):
+                raise RuntimeError("Center-before-displace requires centering indices.")
+            if alignToSofaFrame and (alignIndices is None or len(alignIndices) == 0):
+                raise RuntimeError("SOFA frame alignment requires alignment indices.")
 
         exts = (".vtk", ".vtp", ".ply")
         files = [f for f in os.listdir(inputDir)
@@ -2647,26 +2734,47 @@ class ETSE_UV__MeshToolsLogic(ScriptedLoadableModuleLogic):
 
                 poly = self.model_polydata_in_world(node)
 
+                markupsPath = None
+                mrkFrameBeforeTranslation = None
+                if useFiducialsFolder:
+                    markupsPath = self._find_matching_markups(fiducialsDir, base)
+                    if markupsPath is None:
+                        raise RuntimeError(f"No matching .mrk.json file found in fiducials folder for base '{base}'.")
+
                 if centerBeforeDisplace:
-                    centerIds = self.subset_indices_by_position(indices, centerIndexRange)
-                    anchor = self.anchor_center_from_indices(poly, centerIds)
+                    if useFiducialsFolder:
+                        anchor = self._load_anchor_center_from_mrk_json(markupsPath, centerFiducialRange)
+                    else:
+                        centerIds = self.subset_indices_by_position(indices, centerIndexRange)
+                        anchor = self.anchor_center_from_indices(poly, centerIds)
                     poly, translation = self.center_polydata(poly, anchor, targetEarAnchor)
                 else:
-                    translation = targetEarAnchor
+                    translation = targetEarAnchor.copy()
                     poly = self.translate_polydata(poly, translation)
 
                 rotationAngleDeg = None
                 if alignToSofaFrame:
-                    targetFrame = self.anatomical_frame_from_stored_indices(
-                        polyData=poly,
-                        storedIndices=alignIndices,
-                        loadedIndexLabels=alignLoadedIndexLabels,
-                        canalLabels=alignCanalLabels,
-                        otobasionLabels=alignOtobasionLabels,
-                        upPairsText=alignUpPairsText,
-                        otobasionWeight=float(alignOtobasionWeight),
-                        canalWeight=float(alignCanalWeight),
-                    )
+                    if useFiducialsFolder:
+                        mrkFrameBeforeTranslation = self.anatomical_frame_from_mrk_json(
+                            filePath=markupsPath,
+                            canalLabels=alignCanalLabels,
+                            otobasionLabels=alignOtobasionLabels,
+                            upPairsText=alignUpPairsText,
+                            otobasionWeight=float(alignOtobasionWeight),
+                            canalWeight=float(alignCanalWeight),
+                        )
+                        targetFrame = self.translate_frame(mrkFrameBeforeTranslation, translation)
+                    else:
+                        targetFrame = self.anatomical_frame_from_stored_indices(
+                            polyData=poly,
+                            storedIndices=alignIndices,
+                            loadedIndexLabels=alignLoadedIndexLabels,
+                            canalLabels=alignCanalLabels,
+                            otobasionLabels=alignOtobasionLabels,
+                            upPairsText=alignUpPairsText,
+                            otobasionWeight=float(alignOtobasionWeight),
+                            canalWeight=float(alignCanalWeight),
+                        )
 
                     sofaNormal = np.asarray(receiver, dtype=float).reshape(3)
                     if bool(flipSofaOutwardDirection):
@@ -2695,6 +2803,8 @@ class ETSE_UV__MeshToolsLogic(ScriptedLoadableModuleLogic):
                     f"target=[{targetEarAnchor[0]:.6f}, {targetEarAnchor[1]:.6f}, {targetEarAnchor[2]:.6f}] | "
                     f"translation=[{translation[0]:.6f}, {translation[1]:.6f}, {translation[2]:.6f}]"
                 )
+                if useFiducialsFolder and markupsPath is not None:
+                    msg += f" | MRK={os.path.basename(markupsPath)}"
                 if rotationAngleDeg is not None:
                     msg += f" | SOFA-frame rotation={rotationAngleDeg:.3f} deg"
                 print(msg)
