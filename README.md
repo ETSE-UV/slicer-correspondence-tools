@@ -294,7 +294,7 @@ Resources/Icons/
 
 When adding a new module, place the main `.py` file in the repository root, next to the existing `ETSE_UV__*.py` modules.
 
-
+<!--
 
 ## Citation
 
@@ -315,3 +315,5 @@ Until the final publication details are available, please cite it as:
 Add the project license here.
 
 If no license is provided, all rights are reserved by the authors.
+
+-->
